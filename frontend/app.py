@@ -180,8 +180,6 @@ if "uploaded_file" not in st.session_state:
     st.session_state.uploaded_file = None
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = None
-if "sections_json" not in st.session_state:
-    st.session_state.sections_json = None
 if "is_done" not in st.session_state:
     st.session_state.is_done = False
 if "chat_started" not in st.session_state:
@@ -252,7 +250,6 @@ def render_upload_page():
                     else:
                         data = resp.json()
                         st.session_state.thread_id = data["thread_id"]
-                        st.session_state.sections_json = data["sections_json"]
                         st.session_state.page = "chat"
                         st.session_state.messages = [
                             {"role": "assistant", "name": "reporter",
@@ -338,7 +335,6 @@ def render_chat_page():
             st.session_state.page = "upload"
             st.session_state.messages = []
             st.session_state.thread_id = None
-            st.session_state.sections_json = None
             st.session_state.is_done = False
             st.session_state.chat_started = False
             st.rerun()
@@ -358,9 +354,8 @@ def render_chat_page():
     if not st.session_state.chat_started and st.session_state.thread_id:
         _stream_and_display(
             url=f"{API_BASE}/chat/start",
-            params={"thread_id": st.session_state.thread_id,
-                    "sections_json": st.session_state.sections_json},
-            method="GET_WITH_PARAMS"
+            body={"thread_id": st.session_state.thread_id, "message": ""},
+            method="POST_JSON"
         )
         st.session_state.chat_started = True
         st.rerun()

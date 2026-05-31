@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
@@ -21,6 +21,9 @@ app.add_middleware(
 
 PERSONA_NODES = {"investor", "cto", "mentor", "reporter"}
 
+# 업로드된 기획서 섹션을 thread_id 기준으로 서버 메모리에 보관
+_sessions: dict[str, dict[str, str]] = {}
+
 
 @app.get("/health")
 def health():
@@ -39,19 +42,17 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="기획서 섹션을 파싱할 수 없습니다.")
 
     thread_id = str(uuid.uuid4())
-    return UploadResponse(
-        thread_id=thread_id,
-        first_persona="investor",
-        sections_json=json.dumps(sections, ensure_ascii=False),
-    )
+    _sessions[thread_id] = sections  # 섹션을 서버에 보관, thread_id로 조회
+    return UploadResponse(thread_id=thread_id, first_persona="investor")
 
 
 @app.post("/chat/start")
-async def chat_start(
-    thread_id: str = Query(...),
-    sections_json: str = Query(...),
-):
-    sections = json.loads(sections_json)
+async def chat_start(req: ChatRequest):
+    thread_id = req.thread_id
+    sections = _sessions.get(thread_id)
+    if not sections:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다. 다시 업로드해주세요.")
+
     config = {"configurable": {"thread_id": thread_id}}
 
     initial_state = {

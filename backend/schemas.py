@@ -17,7 +17,6 @@ class PlannerState(TypedDict):
 class UploadResponse(BaseModel):
     thread_id: str
     first_persona: str = "investor"
-    sections_json: str = ""
 
 
 class ChatRequest(BaseModel):
