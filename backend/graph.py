@@ -13,13 +13,19 @@ from backend.nodes import (
 _checkpointer = InMemorySaver()
 
 
+_FIRST_PERSONAS = {"investor", "cto", "mentor"}
+
 def _route_after_orchestrator(state: PlannerState) -> Literal["investor", "cto", "mentor"]:
     """오케스트레이터 계획의 첫 번째 라운드 페르소나로 라우팅."""
     plan = state.get("orchestrator_plan", [])
     if plan:
-        return plan[0]["persona"]
+        persona = plan[0]["persona"]
+        if persona in _FIRST_PERSONAS:
+            return persona
     return "investor"
 
+
+_ALL_PERSONAS = {"investor", "cto", "mentor"}
 
 def _route_after_human(state: PlannerState) -> Literal["investor", "cto", "mentor", "reporter"]:
     """현재 라운드에 해당하는 페르소나로 라우팅. 계획이 없으면 round-robin 폴백."""
@@ -27,7 +33,9 @@ def _route_after_human(state: PlannerState) -> Literal["investor", "cto", "mento
         return "reporter"
     plan = state.get("orchestrator_plan", [])
     if plan and state["round"] < len(plan):
-        return plan[state["round"]]["persona"]
+        persona = plan[state["round"]]["persona"]
+        if persona in _ALL_PERSONAS:
+            return persona
     return PERSONA_ORDER[state["round"] % len(PERSONA_ORDER)]
 
 
