@@ -1,7 +1,18 @@
 from pydantic import BaseModel
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 import operator
 from typing_extensions import TypedDict
+
+
+# ── Orchestrator 계획 모델 ────────────────────────────────────
+class OrchestratorRound(BaseModel):
+    persona: Literal["investor", "cto", "mentor"]
+    section: str
+    focus: str
+
+
+class OrchestratorPlan(BaseModel):
+    rounds: list[OrchestratorRound]
 
 
 # ── LangGraph State ──────────────────────────────────────────
@@ -11,6 +22,7 @@ class PlannerState(TypedDict):
     round: int
     persona_outputs: Annotated[list[dict], operator.add]
     final_report: str
+    orchestrator_plan: list[dict]   # [{persona, section, focus}] × 6
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────
