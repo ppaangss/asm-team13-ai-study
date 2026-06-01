@@ -4,7 +4,7 @@ from langgraph.types import interrupt
 
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
-from backend.schemas import PlannerState
+from backend.schemas import PlannerState, OrchestratorPlan
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
 
@@ -28,19 +28,54 @@ def _format_history(state: PlannerState) -> str:
     return "\n".join(lines)
 
 
+async def orchestrator_node(state: PlannerState) -> dict:
+    """기획서를 분석해 6라운드 심사 계획을 수립한다."""
+    context = _format_context(state)
+
+    structured_llm = llm.with_structured_output(OrchestratorPlan)
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPTS["orchestrator"]),
+        HumanMessage(content=f"{context}\n\n위 기획서를 분석하여 6라운드 심사 계획을 작성하세요."),
+    ]
+    plan: OrchestratorPlan = await structured_llm.ainvoke(messages)
+    return {
+        "orchestrator_plan": [r.model_dump() for r in plan.rounds],
+    }
+
+
 async def _run_persona(persona: str, state: PlannerState) -> dict:
-    """공통 페르소나 실행 로직."""
+    """공통 페르소나 실행 로직. llm.astream()으로 토큰 단위 스트리밍."""
     context = _format_context(state)
     history = _format_history(state)
 
+    plan = state.get("orchestrator_plan", [])
+    focus_context = ""
+    if plan and state["round"] < len(plan):
+        current = plan[state["round"]]
+        focus_context = (
+            f"\n\n[이번 라운드 집중 공략]"
+            f"\n- 대상 섹션: {current['section']}"
+            f"\n- 집중 허점: {current['focus']}"
+        )
+
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS[persona]),
-        HumanMessage(content=f"{context}\n\n{history}\n\n위 기획서와 대화 이력을 바탕으로 날카로운 압박 질문 1개를 생성하세요."),
+        HumanMessage(
+            content=(
+                f"{context}\n\n{history}{focus_context}\n\n"
+                "위 기획서와 대화 이력을 바탕으로 날카로운 압박 질문 1개를 생성하세요."
+            )
+        ),
     ]
-    response = await llm.ainvoke(messages)
+
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        if chunk.content:
+            full_content += chunk.content
+
     return {
-        "messages": [{"role": "assistant", "name": persona, "content": response.content}],
-        "persona_outputs": [{"persona": persona, "question": response.content, "round": state["round"]}],
+        "messages": [{"role": "assistant", "name": persona, "content": full_content}],
+        "persona_outputs": [{"persona": persona, "question": full_content, "round": state["round"]}],
     }
 
 
@@ -66,7 +101,7 @@ def human_node(state: PlannerState) -> dict:
 
 
 async def reporter_node(state: PlannerState) -> dict:
-    """모든 Q&A를 바탕으로 종합 리포트 생성."""
+    """모든 Q&A를 바탕으로 종합 리포트 생성. llm.astream()으로 스트리밍."""
     context = _format_context(state)
     history = _format_history(state)
 
@@ -74,8 +109,13 @@ async def reporter_node(state: PlannerState) -> dict:
         SystemMessage(content=SYSTEM_PROMPTS["reporter"]),
         HumanMessage(content=f"{context}\n\n{history}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
     ]
-    response = await llm.ainvoke(messages)
+
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        if chunk.content:
+            full_content += chunk.content
+
     return {
-        "messages": [{"role": "assistant", "name": "reporter", "content": response.content}],
-        "final_report": response.content,
+        "messages": [{"role": "assistant", "name": "reporter", "content": full_content}],
+        "final_report": full_content,
     }
