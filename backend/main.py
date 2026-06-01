@@ -61,6 +61,7 @@ async def chat_start(req: ChatRequest):
         "round": 0,
         "persona_outputs": [],
         "final_report": "",
+        "orchestrator_plan": [],
     }
 
     async def event_generator():
