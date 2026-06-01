@@ -66,6 +66,57 @@ async def orchestrator_node(state: PlannerState) -> dict:
     return {"orchestrator_plan": rounds, "sections_by_persona": sections_by_persona}
 
 
+async def _run_analyze(persona: str, state: PlannerState) -> dict:
+    """배분된 섹션만 받아 허점 분석 후 findings 반환. ReAct 루프에서 재실행 가능."""
+    assigned = state.get("sections_by_persona", {}).get(persona, {})
+    if not assigned:
+        assigned = state["sections"]  # 폴백: 전체 섹션
+
+    sections_text = "\n".join(
+        f"[{title}]\n{content}" for title, content in assigned.items()
+    )
+
+    follow_up = state.get("orchestrator_request", {}).get(persona, "")
+    follow_up_block = f"\n\n[추가 분석 요청]\n{follow_up}" if follow_up else ""
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPTS[f"{persona}_analyze"]),
+        HumanMessage(
+            content=(
+                f"=== 분석 대상 섹션 ===\n{sections_text}"
+                f"{follow_up_block}\n\n"
+                "위 섹션의 핵심 허점을 분석하세요."
+            )
+        ),
+    ]
+
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        if chunk.content:
+            full_content += chunk.content
+
+    return {
+        "persona_findings": [{
+            "persona": persona,
+            "findings": full_content,
+            "round": state["round"],
+        }],
+        "orchestrator_request": {},  # 처리 완료 후 초기화
+    }
+
+
+async def investor_analyze_node(state: PlannerState) -> dict:
+    return await _run_analyze("investor", state)
+
+
+async def cto_analyze_node(state: PlannerState) -> dict:
+    return await _run_analyze("cto", state)
+
+
+async def mentor_analyze_node(state: PlannerState) -> dict:
+    return await _run_analyze("mentor", state)
+
+
 async def _run_persona(persona: str, state: PlannerState) -> dict:
     """공통 페르소나 실행 로직.
     1단계: bind_tools LLM으로 tool call 여부 결정

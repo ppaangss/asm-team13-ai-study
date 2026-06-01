@@ -47,3 +47,68 @@ def test_orchestrator_node_returns_sections_by_persona():
 
     import asyncio
     asyncio.run(run())
+
+
+def test_investor_analyze_node_uses_assigned_sections():
+    """investor_analyze_node가 배분된 섹션만 사용하고 findings를 반환하는지 확인."""
+    state = {
+        **SAMPLE_STATE,
+        "sections_by_persona": {
+            "investor": {"5. 수익 모델": "초기 무료, 추후 프리미엄"},
+        },
+        "orchestrator_request": {},
+    }
+
+    async def run():
+        with patch("backend.nodes.llm") as mock_llm:
+            mock_msg = MagicMock()
+            mock_msg.content = "수익화 시점이 불명확하고 전환율 근거가 없다."
+            mock_chunks = [mock_msg]
+
+            async def fake_astream(*args, **kwargs):
+                for c in mock_chunks:
+                    yield c
+
+            mock_llm.astream = fake_astream
+            from backend.nodes import investor_analyze_node
+            result = await investor_analyze_node(state)
+
+        assert "persona_findings" in result
+        assert len(result["persona_findings"]) == 1
+        finding = result["persona_findings"][0]
+        assert finding["persona"] == "investor"
+        assert len(finding["findings"]) > 0
+        assert finding["round"] == 0
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_analyze_node_includes_followup_request_when_present():
+    """orchestrator_request가 있으면 프롬프트에 포함되는지 확인 (findings에 반영)."""
+    state = {
+        **SAMPLE_STATE,
+        "sections_by_persona": {
+            "investor": {"5. 수익 모델": "초기 무료"},
+        },
+        "orchestrator_request": {"investor": "Unit Economics를 구체적으로 분석해줘"},
+    }
+
+    async def run():
+        with patch("backend.nodes.llm") as mock_llm:
+            captured = {}
+
+            async def fake_astream(messages, *args, **kwargs):
+                captured["prompt"] = messages[-1].content
+                mock_msg = MagicMock()
+                mock_msg.content = "Unit Economics 근거 없음."
+                yield mock_msg
+
+            mock_llm.astream = fake_astream
+            from backend.nodes import investor_analyze_node
+            await investor_analyze_node(state)
+
+        assert "Unit Economics" in captured["prompt"]
+
+    import asyncio
+    asyncio.run(run())
