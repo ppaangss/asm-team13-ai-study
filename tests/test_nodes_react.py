@@ -211,3 +211,36 @@ def test_run_persona_uses_findings_in_prompt():
 
     import asyncio
     asyncio.run(run())
+
+
+def test_should_continue_react_returns_continue_when_insufficient_and_under_limit():
+    from backend.graph import _should_continue_react
+    state = {
+        **SAMPLE_STATE,
+        "review_count": 1,
+        "orchestrator_request": {"investor": "더 분석해줘"},
+    }
+    result = _should_continue_react(state)
+    assert result == "continue"
+
+
+def test_should_continue_react_returns_done_when_max_iterations():
+    from backend.graph import _should_continue_react
+    state = {
+        **SAMPLE_STATE,
+        "review_count": 2,
+        "orchestrator_request": {"investor": "더 분석해줘"},
+    }
+    result = _should_continue_react(state)
+    assert result == "done"
+
+
+def test_should_continue_react_returns_done_when_sufficient():
+    from backend.graph import _should_continue_react
+    state = {
+        **SAMPLE_STATE,
+        "review_count": 1,
+        "orchestrator_request": {},
+    }
+    result = _should_continue_react(state)
+    assert result == "done"
