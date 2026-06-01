@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -15,7 +16,7 @@ from backend.schemas import UploadResponse, ChatRequest, ChatEvent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    build_index()
+    await asyncio.to_thread(build_index)
     yield
 
 

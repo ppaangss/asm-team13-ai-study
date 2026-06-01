@@ -96,8 +96,13 @@ def retrieve(
     if not docs:
         return ""
 
+    MAX_RAG_CHARS = 2000
     lines = ["=== 유사 사례 참조 ==="]
+    total = 0
     for doc, meta in zip(docs, metas):
+        if total + len(doc) > MAX_RAG_CHARS:
+            break
         lines.append(f"\n[출처: {meta['source']} — {meta['section']}]")
         lines.append(doc)
+        total += len(doc)
     return "\n".join(lines)
