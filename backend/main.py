@@ -74,6 +74,10 @@ async def chat_start(req: ChatRequest):
         "persona_outputs": [],
         "final_report": "",
         "orchestrator_plan": [],
+        "sections_by_persona": {},
+        "persona_findings": [],
+        "review_count": 0,
+        "orchestrator_request": {},
     }
 
     async def event_generator():
