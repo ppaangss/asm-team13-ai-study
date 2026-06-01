@@ -47,3 +47,12 @@ def test_web_search_truncates_long_content():
         result = web_search.invoke({"query": "테스트"})
     # 콘텐츠는 300자로 잘려야 한다
     assert len(result) <= 400  # "[긴 문서] " + 300자 + 여유
+
+
+def test_web_search_handles_api_error():
+    with patch("tavily.TavilyClient") as MockClient:
+        instance = MockClient.return_value
+        instance.search.side_effect = Exception("API Error")
+        from backend.tools import web_search
+        result = web_search.invoke({"query": "test"})
+    assert result == "웹 검색 실패"
