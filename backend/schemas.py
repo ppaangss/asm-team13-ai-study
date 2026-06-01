@@ -15,6 +15,19 @@ class OrchestratorPlan(BaseModel):
     rounds: list[OrchestratorRound]
 
 
+# ── ReAct 서브에이전트 스키마 ────────────────────────────────────
+class PersonaFindings(BaseModel):
+    persona: Literal["investor", "cto", "mentor"]
+    assigned_sections: dict[str, str]   # 이 페르소나에 배분된 섹션들
+    findings: str                        # 허점 분석 결과 (자유 텍스트)
+    round: int
+
+
+class OrchestratorReview(BaseModel):
+    is_sufficient: bool
+    follow_up_requests: dict[str, str]  # {persona: 보완 요청 내용} — 충분하면 {}
+
+
 # ── LangGraph State ──────────────────────────────────────────
 class PlannerState(TypedDict):
     sections: dict[str, str]
@@ -22,7 +35,12 @@ class PlannerState(TypedDict):
     round: int
     persona_outputs: Annotated[list[dict], operator.add]
     final_report: str
-    orchestrator_plan: list[dict]   # [{persona, section, focus}] × 6
+    orchestrator_plan: list[dict]
+    # ReAct 신규 필드
+    sections_by_persona: dict[str, dict[str, str]]
+    persona_findings: Annotated[list[dict], operator.add]
+    review_count: int
+    orchestrator_request: dict[str, str]
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────

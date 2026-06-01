@@ -56,3 +56,42 @@ def test_orchestrator_plan_has_rounds():
 def test_planner_state_has_orchestrator_plan_field():
     hints = PlannerState.__annotations__
     assert "orchestrator_plan" in hints
+
+
+def test_planner_state_has_react_fields():
+    """새 ReAct 필드가 PlannerState에 존재하는지 확인."""
+    from typing import get_type_hints
+    hints = get_type_hints(PlannerState)
+    assert "sections_by_persona" in hints
+    assert "persona_findings" in hints
+    assert "review_count" in hints
+    assert "orchestrator_request" in hints
+
+
+def test_persona_findings_schema():
+    from backend.schemas import PersonaFindings
+    f = PersonaFindings(
+        persona="investor",
+        assigned_sections={"수익모델": "구독 기반"},
+        findings="수익화 시점이 불명확하다.",
+        round=0,
+    )
+    assert f.persona == "investor"
+    assert "수익모델" in f.assigned_sections
+
+
+def test_orchestrator_review_sufficient():
+    from backend.schemas import OrchestratorReview
+    r = OrchestratorReview(is_sufficient=True, follow_up_requests={})
+    assert r.is_sufficient is True
+    assert r.follow_up_requests == {}
+
+
+def test_orchestrator_review_needs_more():
+    from backend.schemas import OrchestratorReview
+    r = OrchestratorReview(
+        is_sufficient=False,
+        follow_up_requests={"investor": "Unit Economics를 추가 분석해줘"},
+    )
+    assert r.is_sufficient is False
+    assert "investor" in r.follow_up_requests
