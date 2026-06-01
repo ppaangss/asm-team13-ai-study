@@ -21,7 +21,8 @@ def fake_col():
 
 
 def test_example_files_exist():
-    files = list(Path("data/examples").glob("*.txt"))
+    examples_dir = Path(__file__).parent.parent / "data" / "examples"
+    files = list(examples_dir.glob("*.txt"))
     assert len(files) >= 3
 
 

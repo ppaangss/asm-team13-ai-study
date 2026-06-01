@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import chromadb
@@ -16,10 +18,19 @@ def _get_embedder_query():
     return UpstageEmbeddings(model="solar-embedding-1-query", api_key=UPSTAGE_API_KEY)
 
 
+_persistent_client: chromadb.PersistentClient | None = None
+
+
 def get_collection(db_path: str | None = None) -> chromadb.Collection:
     """ChromaDB 컬렉션 반환. db_path 미지정 시 config의 CHROMA_DB_PATH 사용."""
+    global _persistent_client
     path = db_path or CHROMA_DB_PATH
-    client = chromadb.PersistentClient(path=path)
+    if db_path is None:
+        if _persistent_client is None:
+            _persistent_client = chromadb.PersistentClient(path=path)
+        client = _persistent_client
+    else:
+        client = chromadb.PersistentClient(path=path)
     return client.get_or_create_collection(
         name="planning_examples",
         metadata={"hnsw:space": "cosine"},
@@ -72,10 +83,13 @@ def retrieve(
     embedder = _get_embedder_query()
     query_vec = embedder.embed_query(query)
 
-    results = collection.query(
-        query_embeddings=[query_vec],
-        n_results=min(k, collection.count()),
-    )
+    try:
+        results = collection.query(
+            query_embeddings=[query_vec],
+            n_results=min(k, collection.count()),
+        )
+    except Exception:
+        return ""
 
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
