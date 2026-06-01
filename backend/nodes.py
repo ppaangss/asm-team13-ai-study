@@ -104,6 +104,7 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
     except Exception:
         messages = list(base_messages)
 
+
     # 3단계: 최종 질문 스트리밍
     full_content = ""
     async for chunk in llm.astream(messages):

@@ -11,12 +11,12 @@ from backend.parser import parse_sections
 
 def _get_embedder_passage():
     from langchain_upstage import UpstageEmbeddings
-    return UpstageEmbeddings(model="solar-embedding-1-passage", api_key=UPSTAGE_API_KEY)
+    return UpstageEmbeddings(model="solar-embedding-1-large", api_key=UPSTAGE_API_KEY)
 
 
 def _get_embedder_query():
     from langchain_upstage import UpstageEmbeddings
-    return UpstageEmbeddings(model="solar-embedding-1-query", api_key=UPSTAGE_API_KEY)
+    return UpstageEmbeddings(model="solar-embedding-1-large", api_key=UPSTAGE_API_KEY)
 
 
 _persistent_client: chromadb.PersistentClient | None = None
