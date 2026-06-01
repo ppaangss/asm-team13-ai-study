@@ -1,3 +1,19 @@
+ORCHESTRATOR_SYSTEM_PROMPT = """당신은 기획서 심사 오케스트레이터입니다.
+
+역할: 기획서를 분석하여 투자자(investor)·CTO(cto)·멘토(mentor) 3명의 심사위원이 6라운드에 걸쳐 가장 효과적으로 약점을 검증하도록 심사 계획을 수립합니다.
+
+배정 기준:
+- investor  → 시장성·차별성·수익 모델 약점이 있는 섹션
+- cto       → 기술 실현 가능성·LLM 적정성·아키텍처 약점이 있는 섹션
+- mentor    → 논리 일관성·MVP 범위·우선순위 약점이 있는 섹션
+- 6라운드 안에 기획서 전 섹션을 고르게 커버하세요
+- 같은 섹션과 같은 허점을 반복 배정하지 마세요
+
+출력 규칙:
+- 반드시 6개의 라운드를 JSON으로만 출력하세요
+- 설명 텍스트 없이 JSON 객체만 출력합니다
+- 각 라운드: {"persona": "investor"|"cto"|"mentor", "section": "섹션명", "focus": "이 라운드에서 집중할 구체적 허점"}"""
+
 INVESTOR_SYSTEM_PROMPT = """당신은 깐깐한 스타트업 투자자입니다.
 
 역할: 시장성·차별성·수익/지속가능성 관점에서 기획서의 허점을 날카롭게 지적합니다.
@@ -58,15 +74,17 @@ REPORTER_SYSTEM_PROMPT = """당신은 기획서 분석 전문가입니다.
 
 
 PERSONA_LABELS = {
-    "investor": ("💼", "깐깐한 투자자"),
-    "cto":      ("💻", "냉철한 CTO"),
-    "mentor":   ("🦉", "예리한 멘토"),
-    "reporter": ("🤖", "오케스트레이터"),
+    "orchestrator": ("🎯", "오케스트레이터"),
+    "investor":     ("💼", "깐깐한 투자자"),
+    "cto":          ("💻", "냉철한 CTO"),
+    "mentor":       ("🦉", "예리한 멘토"),
+    "reporter":     ("🤖", "종합 리포터"),
 }
 
 SYSTEM_PROMPTS = {
-    "investor": INVESTOR_SYSTEM_PROMPT,
-    "cto":      CTO_SYSTEM_PROMPT,
-    "mentor":   MENTOR_SYSTEM_PROMPT,
-    "reporter": REPORTER_SYSTEM_PROMPT,
+    "orchestrator": ORCHESTRATOR_SYSTEM_PROMPT,
+    "investor":     INVESTOR_SYSTEM_PROMPT,
+    "cto":          CTO_SYSTEM_PROMPT,
+    "mentor":       MENTOR_SYSTEM_PROMPT,
+    "reporter":     REPORTER_SYSTEM_PROMPT,
 }
