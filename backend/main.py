@@ -1,5 +1,6 @@
 import json
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,9 +9,17 @@ from langgraph.types import Command
 
 from backend.graph import graph
 from backend.parser import parse_sections
+from backend.rag import build_index
 from backend.schemas import UploadResponse, ChatRequest, ChatEvent
 
-app = FastAPI(title="기획서 검증 에이전트 API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    build_index()
+    yield
+
+
+app = FastAPI(title="기획서 검증 에이전트 API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

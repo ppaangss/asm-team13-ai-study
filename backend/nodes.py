@@ -4,6 +4,7 @@ from langgraph.types import interrupt
 
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
+from backend.rag import retrieve
 from backend.schemas import PlannerState, OrchestratorPlan
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
@@ -29,13 +30,21 @@ def _format_history(state: PlannerState) -> str:
 
 
 async def orchestrator_node(state: PlannerState) -> dict:
-    """기획서를 분석해 6라운드 심사 계획을 수립한다."""
+    """기획서를 분석해 6라운드 심사 계획을 수립한다. RAG로 유사 실패 패턴을 참조한다."""
     context = _format_context(state)
+
+    rag_context = retrieve(context[:500])
+    rag_block = f"\n\n{rag_context}" if rag_context else ""
 
     structured_llm = llm.with_structured_output(OrchestratorPlan)
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["orchestrator"]),
-        HumanMessage(content=f"{context}\n\n위 기획서를 분석하여 6라운드 심사 계획을 작성하세요."),
+        HumanMessage(
+            content=(
+                f"{context}{rag_block}\n\n"
+                "위 기획서를 분석하여 6라운드 심사 계획을 작성하세요."
+            )
+        ),
     ]
     try:
         plan: OrchestratorPlan = await structured_llm.ainvoke(messages)
@@ -52,19 +61,25 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
 
     plan = state.get("orchestrator_plan", [])
     focus_context = ""
+    focus_section = ""
     if plan and state["round"] < len(plan):
         current = plan[state["round"]]
+        focus_section = current["section"]
         focus_context = (
             f"\n\n[이번 라운드 집중 공략]"
-            f"\n- 대상 섹션: {current['section']}"
+            f"\n- 대상 섹션: {focus_section}"
             f"\n- 집중 허점: {current['focus']}"
         )
+
+    rag_query = f"{persona} 관점 {focus_section} 약점" if focus_section else f"{persona} 관점 기획서 약점"
+    rag_context = retrieve(rag_query)
+    rag_block = f"\n\n{rag_context}" if rag_context else ""
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS[persona]),
         HumanMessage(
             content=(
-                f"{context}\n\n{history}{focus_context}\n\n"
+                f"{context}\n\n{history}{focus_context}{rag_block}\n\n"
                 "위 기획서와 대화 이력을 바탕으로 날카로운 압박 질문 1개를 생성하세요."
             )
         ),
