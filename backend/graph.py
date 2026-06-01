@@ -8,6 +8,7 @@ from backend.nodes import (
     orchestrator_node,
     investor_analyze_node, cto_analyze_node, mentor_analyze_node,
     orchestrator_review_node,
+    question_router,
     investor_node, cto_node, mentor_node,
     human_node, reporter_node,
 )
@@ -59,6 +60,7 @@ def build_graph():
     builder.add_node("cto_analyze", cto_analyze_node)
     builder.add_node("mentor_analyze", mentor_analyze_node)
     builder.add_node("orchestrator_review", orchestrator_review_node)
+    builder.add_node("question_router", question_router)
     builder.add_node("investor", investor_node)
     builder.add_node("cto", cto_node)
     builder.add_node("mentor", mentor_node)
@@ -78,8 +80,15 @@ def build_graph():
         _should_continue_react,
         {
             "continue": "investor_analyze",
-            "done": "investor",
+            "done": "question_router",
         },
+    )
+
+    # question_router → 라운드별 페르소나로 라우팅
+    builder.add_conditional_edges(
+        "question_router",
+        _route_to_question_persona,
+        {"investor": "investor", "cto": "cto", "mentor": "mentor"},
     )
 
     # 질문 생성 노드들 → human

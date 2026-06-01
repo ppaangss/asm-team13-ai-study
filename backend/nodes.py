@@ -121,13 +121,13 @@ async def mentor_analyze_node(state: PlannerState) -> dict:
 async def orchestrator_review_node(state: PlannerState) -> dict:
     """현재 라운드 persona_findings를 검토. 충분하면 통과, 부족하면 follow_up_requests 반환."""
     current_round = state["round"]
-    findings_this_round = [
-        f for f in state.get("persona_findings", [])
-        if f["round"] == current_round
-    ]
+    latest_by_persona: dict[str, str] = {}
+    for f in state.get("persona_findings", []):
+        if f["round"] == current_round:
+            latest_by_persona[f["persona"]] = f["findings"]
 
     findings_text = "\n\n".join(
-        f"[{f['persona']}]\n{f['findings']}" for f in findings_this_round
+        f"[{persona}]\n{findings}" for persona, findings in latest_by_persona.items()
     )
 
     messages = [
@@ -182,12 +182,12 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
     rag_context = retrieve(rag_query)
     rag_block = f"\n\n{rag_context}" if rag_context else ""
 
-    # 현재 라운드의 이 페르소나 findings 조회
-    current_findings = next(
-        (f["findings"] for f in state.get("persona_findings", [])
-         if f["persona"] == persona and f["round"] == state["round"]),
-        ""
-    )
+    # 현재 라운드의 이 페르소나 findings 조회 (재분석 시 최신 결과 사용)
+    findings_this_persona = [
+        f["findings"] for f in state.get("persona_findings", [])
+        if f["persona"] == persona and f["round"] == state["round"]
+    ]
+    current_findings = findings_this_persona[-1] if findings_this_persona else ""
     findings_block = (
         f"\n\n[사전 분석 결과]\n{current_findings}"
         if current_findings else ""
@@ -233,6 +233,11 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
         "messages": [{"role": "assistant", "name": persona, "content": full_content}],
         "persona_outputs": [{"persona": persona, "question": full_content, "round": state["round"]}],
     }
+
+
+async def question_router(state: PlannerState) -> dict:
+    """질문 생성 페르소나 라우팅을 위한 패스스루 노드."""
+    return {}
 
 
 async def investor_node(state: PlannerState) -> dict:
