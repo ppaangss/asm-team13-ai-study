@@ -22,6 +22,8 @@ ENV/
 # OS files
 .DS_Store
 Thumbs.db
+# 서버 로그
+*.log
 
 # RAG 데이터 (로컬 전용)
 data/
