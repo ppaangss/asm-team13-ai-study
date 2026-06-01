@@ -112,3 +112,64 @@ def test_analyze_node_includes_followup_request_when_present():
 
     import asyncio
     asyncio.run(run())
+
+
+def test_orchestrator_review_returns_sufficient_when_findings_complete():
+    """3개 페르소나 findings가 모두 있으면 is_sufficient=True를 반환하는지 확인."""
+    from backend.schemas import OrchestratorReview
+
+    state = {
+        **SAMPLE_STATE,
+        "round": 0,
+        "persona_findings": [
+            {"persona": "investor", "findings": "수익화 시점 불명확.", "round": 0},
+            {"persona": "cto", "findings": "6개월 MVP 비현실적.", "round": 0},
+            {"persona": "mentor", "findings": "MVP 범위 과대.", "round": 0},
+        ],
+        "review_count": 0,
+    }
+
+    mock_review = OrchestratorReview(is_sufficient=True, follow_up_requests={})
+
+    async def run():
+        with patch("backend.nodes._bound_review") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_review)
+            from backend.nodes import orchestrator_review_node
+            result = await orchestrator_review_node(state)
+
+        assert result["review_count"] == 1
+        assert result["orchestrator_request"] == {}
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_orchestrator_review_returns_followup_when_insufficient():
+    """findings가 부족하면 follow_up_requests를 반환하는지 확인."""
+    from backend.schemas import OrchestratorReview
+
+    state = {
+        **SAMPLE_STATE,
+        "round": 0,
+        "persona_findings": [
+            {"persona": "investor", "findings": "수익모델 분석 필요.", "round": 0},
+        ],
+        "review_count": 0,
+    }
+
+    mock_review = OrchestratorReview(
+        is_sufficient=False,
+        follow_up_requests={"investor": "Unit Economics 수치 포함해서 재분석해줘"},
+    )
+
+    async def run():
+        with patch("backend.nodes._bound_review") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_review)
+            from backend.nodes import orchestrator_review_node
+            result = await orchestrator_review_node(state)
+
+        assert result["review_count"] == 1
+        assert "investor" in result["orchestrator_request"]
+
+    import asyncio
+    asyncio.run(run())

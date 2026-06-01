@@ -11,6 +11,7 @@ from backend.tools import web_search
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
 _bound_llm = llm.bind_tools([web_search])
 _bound_orchestrator = llm.with_structured_output(OrchestratorPlan)
+_bound_review = llm.with_structured_output(OrchestratorReview)
 
 
 def _format_context(state: PlannerState) -> str:
@@ -115,6 +116,45 @@ async def cto_analyze_node(state: PlannerState) -> dict:
 
 async def mentor_analyze_node(state: PlannerState) -> dict:
     return await _run_analyze("mentor", state)
+
+
+async def orchestrator_review_node(state: PlannerState) -> dict:
+    """현재 라운드 persona_findings를 검토. 충분하면 통과, 부족하면 follow_up_requests 반환."""
+    current_round = state["round"]
+    findings_this_round = [
+        f for f in state.get("persona_findings", [])
+        if f["round"] == current_round
+    ]
+
+    findings_text = "\n\n".join(
+        f"[{f['persona']}]\n{f['findings']}" for f in findings_this_round
+    )
+
+    messages = [
+        SystemMessage(content="""당신은 기획서 심사 품질 검토자입니다.
+각 페르소나(investor/cto/mentor)의 분석 결과를 검토하여:
+- 허점이 구체적이고 근거가 있으면 is_sufficient=true
+- 분석이 너무 추상적이거나 중요 허점을 놓쳤으면 is_sufficient=false와 보완 요청 작성
+follow_up_requests는 부족한 페르소나에만 작성합니다."""),
+        HumanMessage(
+            content=(
+                f"=== 현재 라운드({current_round}) 분석 결과 ===\n"
+                f"{findings_text}\n\n"
+                "분석 품질을 검토하고 충분 여부를 판단하세요."
+            )
+        ),
+    ]
+
+    try:
+        review: OrchestratorReview = await _bound_review.ainvoke(messages)
+        follow_up = dict(review.follow_up_requests) if not review.is_sufficient else {}
+    except Exception:
+        follow_up = {}
+
+    return {
+        "review_count": state.get("review_count", 0) + 1,
+        "orchestrator_request": follow_up,
+    }
 
 
 async def _run_persona(persona: str, state: PlannerState) -> dict:
