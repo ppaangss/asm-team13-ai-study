@@ -91,22 +91,30 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
         ),
     ]
 
-    # 1단계: LLM이 tool call 여부 결정
-    tool_decision = await _bound_llm.ainvoke(base_messages)
-
+    # 1단계: LLM이 tool call 여부 결정 (실패 시 직접 스트리밍으로 폴백)
     messages = list(base_messages)
-    if tool_decision.tool_calls:
-        # 2단계: tool call 실행 후 결과 주입
-        messages.append(tool_decision)
-        for tc in tool_decision.tool_calls:
-            tool_result = web_search.invoke(tc["args"])
-            messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc["id"]))
+    try:
+        tool_decision = await _bound_llm.ainvoke(base_messages)
+        if tool_decision.tool_calls:
+            # 2단계: tool call 비동기 실행 후 결과 주입
+            messages.append(tool_decision)
+            for tc in tool_decision.tool_calls:
+                tool_result = await web_search.ainvoke(tc["args"])
+                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc["id"]))
+    except Exception:
+        messages = list(base_messages)
 
     # 3단계: 최종 질문 스트리밍
     full_content = ""
     async for chunk in llm.astream(messages):
         if chunk.content:
             full_content += chunk.content
+
+    # tool 주입 후 모델이 text 대신 tool_call만 반환한 경우 폴백
+    if not full_content and len(messages) > len(base_messages):
+        async for chunk in llm.astream(base_messages):
+            if chunk.content:
+                full_content += chunk.content
 
     return {
         "messages": [{"role": "assistant", "name": persona, "content": full_content}],
