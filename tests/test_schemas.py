@@ -1,4 +1,10 @@
-from backend.schemas import UploadResponse, ChatRequest, ChatEvent, FinalReport, PlannerState
+import pytest
+from pydantic import ValidationError
+
+from backend.schemas import (
+    UploadResponse, ChatRequest, ChatEvent, FinalReport,
+    PlannerState, OrchestratorRound, OrchestratorPlan,
+)
 
 def test_upload_response_has_thread_id_and_persona():
     resp = UploadResponse(thread_id="abc-123", first_persona="investor")
@@ -29,8 +35,6 @@ def test_final_report_risk_levels():
     assert report.weaknesses[0]["risk"] == "상"
 
 
-from backend.schemas import OrchestratorRound, OrchestratorPlan
-
 def test_orchestrator_round_valid():
     r = OrchestratorRound(persona="investor", section="1. 문제 정의", focus="시장 차별성 근거 없음")
     assert r.persona == "investor"
@@ -38,8 +42,6 @@ def test_orchestrator_round_valid():
     assert r.focus == "시장 차별성 근거 없음"
 
 def test_orchestrator_round_invalid_persona():
-    from pydantic import ValidationError
-    import pytest
     with pytest.raises(ValidationError):
         OrchestratorRound(persona="invalid", section="섹션", focus="허점")
 
