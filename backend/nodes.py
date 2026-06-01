@@ -37,10 +37,12 @@ async def orchestrator_node(state: PlannerState) -> dict:
         SystemMessage(content=SYSTEM_PROMPTS["orchestrator"]),
         HumanMessage(content=f"{context}\n\n위 기획서를 분석하여 6라운드 심사 계획을 작성하세요."),
     ]
-    plan: OrchestratorPlan = await structured_llm.ainvoke(messages)
-    return {
-        "orchestrator_plan": [r.model_dump() for r in plan.rounds],
-    }
+    try:
+        plan: OrchestratorPlan = await structured_llm.ainvoke(messages)
+        rounds = [r.model_dump() for r in plan.rounds]
+    except Exception:
+        rounds = []
+    return {"orchestrator_plan": rounds}
 
 
 async def _run_persona(persona: str, state: PlannerState) -> dict:
