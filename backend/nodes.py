@@ -1,13 +1,15 @@
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langgraph.types import interrupt
 
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve
 from backend.schemas import PlannerState, OrchestratorPlan
+from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
+_bound_llm = llm.bind_tools([web_search])
 
 
 def _format_context(state: PlannerState) -> str:
@@ -55,7 +57,11 @@ async def orchestrator_node(state: PlannerState) -> dict:
 
 
 async def _run_persona(persona: str, state: PlannerState) -> dict:
-    """공통 페르소나 실행 로직. llm.astream()으로 토큰 단위 스트리밍."""
+    """공통 페르소나 실행 로직.
+    1단계: bind_tools LLM으로 tool call 여부 결정
+    2단계: tool call 있으면 실행 후 결과 주입
+    3단계: llm.astream()으로 최종 질문 스트리밍
+    """
     context = _format_context(state)
     history = _format_history(state)
 
@@ -75,7 +81,7 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
     rag_context = retrieve(rag_query)
     rag_block = f"\n\n{rag_context}" if rag_context else ""
 
-    messages = [
+    base_messages = [
         SystemMessage(content=SYSTEM_PROMPTS[persona]),
         HumanMessage(
             content=(
@@ -85,6 +91,18 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
         ),
     ]
 
+    # 1단계: LLM이 tool call 여부 결정
+    tool_decision = await _bound_llm.ainvoke(base_messages)
+
+    messages = list(base_messages)
+    if tool_decision.tool_calls:
+        # 2단계: tool call 실행 후 결과 주입
+        messages.append(tool_decision)
+        for tc in tool_decision.tool_calls:
+            tool_result = web_search.invoke(tc["args"])
+            messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc["id"]))
+
+    # 3단계: 최종 질문 스트리밍
     full_content = ""
     async for chunk in llm.astream(messages):
         if chunk.content:
