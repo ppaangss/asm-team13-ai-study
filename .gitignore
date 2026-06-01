@@ -22,3 +22,6 @@ ENV/
 # OS files
 .DS_Store
 Thumbs.db
+
+# ChromaDB 영속 저장소 (자동 생성)
+data/chroma_db/
