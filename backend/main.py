@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
+from backend.file_reader import extract_text, SUPPORTED_EXTENSIONS
 from backend.graph import graph
 from backend.parser import parse_sections
 from backend.rag import build_index
@@ -42,10 +43,11 @@ def health():
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload(file: UploadFile = File(...)):
-    if not file.filename.endswith(".txt"):
-        raise HTTPException(status_code=400, detail="TXT 파일만 지원합니다.")
+    from pathlib import Path
+    if Path(file.filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="TXT, MD, PDF 파일만 지원합니다.")
 
-    raw = (await file.read()).decode("utf-8")
+    raw = extract_text(await file.read(), file.filename)
     sections = parse_sections(raw)
 
     if not sections:

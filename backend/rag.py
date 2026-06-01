@@ -5,6 +5,7 @@ from pathlib import Path
 import chromadb
 
 from backend.config import UPSTAGE_API_KEY, CHROMA_DB_PATH, RAG_TOP_K, EXAMPLES_DIR
+from backend.file_reader import read_file_text, SUPPORTED_EXTENSIONS
 from backend.parser import parse_sections
 
 
@@ -47,18 +48,20 @@ def build_index(collection: chromadb.Collection | None = None) -> None:
         return
 
     texts, ids, metadatas = [], [], []
-    for txt_file in sorted(examples_path.glob("*.txt")):
-        raw = txt_file.read_text(encoding="utf-8")
+    for file in sorted(examples_path.glob("*")):
+        if file.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        raw = read_file_text(file)
         sections = parse_sections(raw)
         for section_title, section_content in sections.items():
-            doc_id = f"{txt_file.stem}::{section_title}"
+            doc_id = f"{file.stem}::{section_title}"
             # 이미 인덱싱된 문서는 건너뜀 (멱등성 보장)
             if collection.get(ids=[doc_id])["ids"]:
                 continue
             chunk = f"[{section_title}]\n{section_content}"
             texts.append(chunk)
             ids.append(doc_id)
-            metadatas.append({"source": txt_file.stem, "section": section_title})
+            metadatas.append({"source": file.stem, "section": section_title})
 
     if not texts:
         return
