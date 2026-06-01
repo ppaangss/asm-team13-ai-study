@@ -173,3 +173,41 @@ def test_orchestrator_review_returns_followup_when_insufficient():
 
     import asyncio
     asyncio.run(run())
+
+
+def test_run_persona_uses_findings_in_prompt():
+    """_run_persona가 persona_findings를 질문 생성에 활용하는지 확인."""
+    state = {
+        **SAMPLE_STATE,
+        "round": 0,
+        "orchestrator_plan": [
+            {"persona": "investor", "section": "수익모델", "focus": "수익화 시점 불명확"},
+        ],
+        "persona_findings": [
+            {"persona": "investor", "findings": "수익화 시점이 불명확하고 Unit Economics 근거 없음.", "round": 0},
+        ],
+    }
+
+    async def run():
+        captured = {}
+
+        with patch("backend.nodes.llm") as mock_llm, \
+             patch("backend.nodes._bound_llm") as mock_bound:
+
+            async def fake_astream(messages, *args, **kwargs):
+                captured["prompt"] = messages[-1].content
+                mock_msg = MagicMock()
+                mock_msg.content = "6개월 후 Unit Economics는 어떻게 됩니까?"
+                yield mock_msg
+
+            mock_llm.astream = fake_astream
+            mock_bound.ainvoke = AsyncMock(return_value=MagicMock(tool_calls=[]))
+
+            from backend.nodes import _run_persona
+            result = await _run_persona("investor", state)
+
+        assert "수익화 시점이 불명확" in captured["prompt"]
+        assert result["persona_outputs"][0]["question"] != ""
+
+    import asyncio
+    asyncio.run(run())

@@ -182,12 +182,23 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
     rag_context = retrieve(rag_query)
     rag_block = f"\n\n{rag_context}" if rag_context else ""
 
+    # 현재 라운드의 이 페르소나 findings 조회
+    current_findings = next(
+        (f["findings"] for f in state.get("persona_findings", [])
+         if f["persona"] == persona and f["round"] == state["round"]),
+        ""
+    )
+    findings_block = (
+        f"\n\n[사전 분석 결과]\n{current_findings}"
+        if current_findings else ""
+    )
+
     base_messages = [
         SystemMessage(content=SYSTEM_PROMPTS[persona]),
         HumanMessage(
             content=(
-                f"{context}\n\n{history}{focus_context}{rag_block}\n\n"
-                "위 기획서와 대화 이력을 바탕으로 날카로운 압박 질문 1개를 생성하세요."
+                f"{context}\n\n{history}{focus_context}{rag_block}{findings_block}\n\n"
+                "위 기획서, 대화 이력, 사전 분석 결과를 바탕으로 날카로운 압박 질문 1개를 생성하세요."
             )
         ),
     ]
