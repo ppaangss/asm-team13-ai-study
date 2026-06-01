@@ -46,12 +46,20 @@ def test_orchestrator_round_invalid_persona():
         OrchestratorRound(persona="invalid", section="섹션", focus="허점")
 
 def test_orchestrator_plan_has_rounds():
-    plan = OrchestratorPlan(rounds=[
-        OrchestratorRound(persona="investor", section="1. 문제 정의", focus="차별성 부족"),
-        OrchestratorRound(persona="cto", section="4. 기술 구현", focus="환각 처리 없음"),
-    ])
+    plan = OrchestratorPlan(
+        rounds=[
+            OrchestratorRound(persona="investor", section="1. 문제 정의", focus="차별성 부족"),
+            OrchestratorRound(persona="cto", section="4. 기술 구현", focus="환각 처리 없음"),
+        ],
+        sections_by_persona={
+            "investor": ["1. 문제 정의"],
+            "cto": ["4. 기술 구현"],
+            "mentor": [],
+        },
+    )
     assert len(plan.rounds) == 2
     assert plan.rounds[0].persona == "investor"
+    assert "investor" in plan.sections_by_persona
 
 def test_planner_state_has_orchestrator_plan_field():
     hints = PlannerState.__annotations__

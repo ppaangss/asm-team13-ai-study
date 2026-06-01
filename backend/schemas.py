@@ -13,6 +13,8 @@ class OrchestratorRound(BaseModel):
 
 class OrchestratorPlan(BaseModel):
     rounds: list[OrchestratorRound]
+    sections_by_persona: dict[str, list[str]]
+    # {"investor": ["5. 수익 모델", "6. 시장 분석"], "cto": [...], "mentor": [...]}
 
 
 # ── ReAct 서브에이전트 스키마 ────────────────────────────────────

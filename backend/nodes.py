@@ -5,11 +5,12 @@ from langgraph.types import interrupt
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve
-from backend.schemas import PlannerState, OrchestratorPlan
+from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview
 from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
 _bound_llm = llm.bind_tools([web_search])
+_bound_orchestrator = llm.with_structured_output(OrchestratorPlan)
 
 
 def _format_context(state: PlannerState) -> str:
@@ -32,28 +33,37 @@ def _format_history(state: PlannerState) -> str:
 
 
 async def orchestrator_node(state: PlannerState) -> dict:
-    """기획서를 분석해 6라운드 심사 계획을 수립한다. RAG로 유사 실패 패턴을 참조한다."""
+    """기획서 분석 → 6라운드 계획 + 페르소나별 섹션 배분."""
     context = _format_context(state)
-
     rag_context = retrieve(context[:500])
     rag_block = f"\n\n{rag_context}" if rag_context else ""
 
-    structured_llm = llm.with_structured_output(OrchestratorPlan)
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["orchestrator"]),
         HumanMessage(
             content=(
                 f"{context}{rag_block}\n\n"
-                "위 기획서를 분석하여 6라운드 심사 계획을 작성하세요."
+                "위 기획서를 분석하여 6라운드 심사 계획과 페르소나별 섹션 배분을 작성하세요."
             )
         ),
     ]
     try:
-        plan: OrchestratorPlan = await structured_llm.ainvoke(messages)
+        plan: OrchestratorPlan = await _bound_orchestrator.ainvoke(messages)
         rounds = [r.model_dump() for r in plan.rounds]
+        sections_by_persona: dict[str, dict[str, str]] = {}
+        for persona, titles in plan.sections_by_persona.items():
+            sections_by_persona[persona] = {
+                t: state["sections"][t]
+                for t in titles
+                if t in state["sections"]
+            }
     except Exception:
         rounds = []
-    return {"orchestrator_plan": rounds}
+        sections_by_persona = {
+            p: dict(state["sections"])
+            for p in ["investor", "cto", "mentor"]
+        }
+    return {"orchestrator_plan": rounds, "sections_by_persona": sections_by_persona}
 
 
 async def _run_persona(persona: str, state: PlannerState) -> dict:
