@@ -1,0 +1,23 @@
+[project]
+name = "proposal-redteam-agent"
+version = "0.1.0"
+description = "다중 페르소나 기획서 검증(모의 심사) 챗봇"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "streamlit>=1.40.0",
+    "langchain-core>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-upstage>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langgraph>=0.2.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
