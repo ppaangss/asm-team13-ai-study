@@ -1,8 +1,35 @@
-import streamlit as st
-import time
+import sys
+import uuid
+from pathlib import Path
+
+# --- 백엔드 연결 --------------------------------------------------------------
+# 이 프론트엔드는 같은 레포의 backend/ 에 있는 LangGraph 백엔드를 그대로 import 한다.
+# backend/app 패키지가 frontend/app.py 보다 먼저 잡히도록 sys.path 맨 앞에 추가한다.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+# 레포 루트 .env 의 LLM 키를 먼저 환경변수에 로드한 뒤 백엔드 모듈을 import 한다.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(REPO_ROOT / ".env")
+
+import streamlit as st  # noqa: E402
+from langgraph.types import Command  # noqa: E402
+
+from app.parser import parse_proposal  # noqa: E402
+from app.graph import build_graph  # noqa: E402
+from app.core import config  # noqa: E402
+
+# 페르소나 → 아바타 이모지 매핑
+PERSONA_AVATARS = {"투자자": "💼", "CTO": "💻", "멘토": "🦉"}
+ORCHESTRATOR_AVATAR = "🤖"
+USER_AVATAR = "👤"
 
 # 페이지 설정
 st.set_page_config(page_title="기획서 검증 에이전트", page_icon="💬", layout="centered")
+
 
 # 카카오톡 스타일 Custom CSS 적용
 def inject_custom_css():
@@ -21,10 +48,10 @@ def inject_custom_css():
             background-color: #ffffff;
             color: #0a0b0d;
         }
-        
+
         /* 상단 헤더 숨기기 */
         header {visibility: hidden;}
-        
+
         /* 챗봇 프로필 아이콘 */
         .stChatMessageAvatar {
             background-color: transparent !important;
@@ -42,7 +69,7 @@ def inject_custom_css():
             border: 1px solid #dee1e6;
             box-shadow: none;
         }
-        
+
         /* 왼쪽 메세지 텍스트 가시성 강화 */
         [data-testid="stChatMessage"]:not([data-testid="stChatMessage"][aria-label="user"]) .stMarkdown p {
             color: #0a0b0d !important;
@@ -62,7 +89,7 @@ def inject_custom_css():
             box-shadow: none;
             border: none;
         }
-        
+
         /* 사용자 메세지 안의 텍스트 색상 강제 (하얀색) */
         [data-testid="stChatMessage"][aria-label="user"] .stMarkdown p {
             color: #ffffff !important;
@@ -101,18 +128,18 @@ def inject_custom_css():
             margin-bottom: 40px;
             margin-top: 32px;
         }
-        
+
         /* 파일 업로더 설명 텍스트 강화 */
         [data-testid="stVerticalBlock"]:has(.upload-container-marker) p {
             font-weight: 450;
             line-height: 1.6;
         }
-        
+
         /* 스타일 적용을 위한 마커 숨김 */
         .upload-container-marker {
             display: none;
         }
-        
+
         /* 🚀 메인 CTA 버튼 (모의 심사 시작하기) */
         .primary-cta-container .stButton > button {
             background-color: #0052ff !important;
@@ -122,7 +149,7 @@ def inject_custom_css():
             border: none !important;
             transition: background-color 0.2s ease;
         }
-        
+
         .primary-cta-container .stButton > button * {
             color: #ffffff !important;
             font-weight: 600 !important;
@@ -133,7 +160,7 @@ def inject_custom_css():
             background-color: #003ecc !important;
             border-color: transparent !important;
         }
-        
+
         /* 나가기 버튼 (Secondary Light) */
         .exit-button-container .stButton > button {
             background-color: #eef0f3 !important;
@@ -156,7 +183,7 @@ def inject_custom_css():
             font-weight: 700 !important; /* 가변 폰트를 활용한 확실한 두께감 */
             letter-spacing: -1px !important;
         }
-        
+
         /* 본문 텍스트 (Body) */
         p {
             color: #5b616e;
@@ -166,13 +193,31 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 
+@st.cache_resource
+def get_graph():
+    """LangGraph 그래프를 1회만 빌드해서 재사용한다."""
+    return build_graph()
+
+
 # 세션 상태 초기화
 if "page" not in st.session_state:
-    st.session_state.page = "upload" # "upload" 또는 "chat"
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "uploaded_file" not in st.session_state:
-    st.session_state.uploaded_file = None
+    st.session_state.page = "upload"  # "upload" 또는 "chat"
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+if "done" not in st.session_state:
+    st.session_state.done = False
+
+
+def _graph_cfg() -> dict:
+    return {"configurable": {"thread_id": st.session_state.thread_id}}
+
+
+def _current_question(graph, cfg) -> dict | None:
+    """진행 중인 interrupt(=다음 질문)가 있으면 그 값을 반환한다."""
+    state = graph.get_state(cfg)
+    if state.tasks and state.tasks[0].interrupts:
+        return state.tasks[0].interrupts[0].value
+    return None
 
 
 def render_upload_page():
@@ -188,7 +233,7 @@ def render_upload_page():
 
     # 2. Feature Cards (페르소나 소개 영역)
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
         st.markdown("""
             <div style="background-color: #ffffff; padding: 28px 24px; border-radius: 24px; height: 100%; border: 1px solid #dee1e6; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
@@ -197,7 +242,7 @@ def render_upload_page():
                 <p style="font-size: 15px; color: #5b616e; margin: 0; line-height: 1.6;">"이거 이미 시장에 있지 않나요?"<br>시장성과 수익성을 검증합니다.</p>
             </div>
         """, unsafe_allow_html=True)
-        
+
     with col2:
         st.markdown("""
             <div style="background-color: #ffffff; padding: 28px 24px; border-radius: 24px; height: 100%; border: 1px solid #dee1e6; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
@@ -206,7 +251,7 @@ def render_upload_page():
                 <p style="font-size: 15px; color: #5b616e; margin: 0; line-height: 1.6;">"이 기간 안에 구현 가능한가요?"<br>기술 실현 가능성을 평가합니다.</p>
             </div>
         """, unsafe_allow_html=True)
-        
+
     with col3:
         st.markdown("""
             <div style="background-color: #ffffff; padding: 28px 24px; border-radius: 24px; height: 100%; border: 1px solid #dee1e6; box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
@@ -217,31 +262,68 @@ def render_upload_page():
         """, unsafe_allow_html=True)
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    
+
     # 3. Upload Container (업로드 영역)
     with st.container():
         st.markdown('<span class="upload-container-marker"></span>', unsafe_allow_html=True)
         st.markdown('<h2 style="font-size: 24px; margin-bottom: 8px;">기획서 업로드</h2>', unsafe_allow_html=True)
-        st.markdown('<p style="margin-bottom: 24px;">TXT 또는 PDF 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
-        
-        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'pdf'], label_visibility="collapsed")
-        
+        st.markdown('<p style="margin-bottom: 24px;">TXT 또는 MD 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
+
+        max_rounds = st.slider("질문 라운드 수", 3, 9, config.MAX_ROUNDS)
+        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'md'], label_visibility="collapsed")
+
         if uploaded_file is not None:
             st.success(f"'{uploaded_file.name}' 파일이 성공적으로 업로드 되었습니다!")
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown('<div class="primary-cta-container">', unsafe_allow_html=True)
-            if st.button("🚀 모의 심사 시작하기", use_container_width=True):
-                st.session_state.uploaded_file = uploaded_file
-                st.session_state.page = "chat"
-                # 초기 안내 메세지 세팅
-                st.session_state.messages = [
-                    {"role": "assistant", "name": "오케스트레이터", "content": f"기획서 파싱을 완료했습니다. 지금부터 투자자, CTO, 멘토 심사위원의 압박 질문을 시작하겠습니다. 준비되셨나요?", "avatar": "🤖"}
-                ]
-                st.rerun()
+            start = st.button("🚀 모의 심사 시작하기", use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
+
+            if start:
+                text = uploaded_file.read().decode("utf-8", errors="ignore")
+                sections = parse_proposal(text)
+                if not sections:
+                    st.error(
+                        "표준 양식(마크다운 # / ## 헤딩)을 인식하지 못했습니다. "
+                        "backend/templates/기획서_양식.md 를 참고해 헤딩 구조를 맞춰주세요."
+                    )
+                else:
+                    graph = get_graph()
+                    with st.spinner("세 페르소나가 기획서를 분석 중입니다..."):
+                        graph.invoke({
+                            "sections": sections, "persona_analyses": [], "weaknesses": [],
+                            "question_pool": [], "asked": [], "transcript": [],
+                            "current_question": {}, "current_answer": "",
+                            "round": 0, "max_rounds": max_rounds, "final_report": {},
+                        }, _graph_cfg())
+                    st.session_state.page = "chat"
+                    st.session_state.done = False
+                    st.rerun()
+
+
+def _render_transcript(values: dict):
+    """그래프 transcript(질문/답변/피드백)를 카카오톡 스타일로 렌더링한다."""
+    for t in values.get("transcript", []):
+        t_type = t.get("type")
+        if t_type == "answer":
+            with st.chat_message("user", avatar=USER_AVATAR):
+                st.markdown(t.get("content", ""))
+        elif t_type == "feedback":
+            persona = t.get("persona", "심사위원")
+            with st.chat_message("assistant", avatar=PERSONA_AVATARS.get(persona, "🤖")):
+                st.caption(f"**{persona}** · _{t.get('assessment', '')}_")
+                st.markdown(t.get("content", ""))
+        else:  # question
+            persona = t.get("persona", "심사위원")
+            with st.chat_message("assistant", avatar=PERSONA_AVATARS.get(persona, "🤖")):
+                st.caption(f"**{persona}**")
+                st.markdown(t.get("content", ""))
 
 
 def render_chat_page():
+    graph = get_graph()
+    cfg = _graph_cfg()
+
     # 헤더
     col1, col2 = st.columns([8, 2])
     with col1:
@@ -249,54 +331,79 @@ def render_chat_page():
     with col2:
         st.markdown('<div class="exit-button-container">', unsafe_allow_html=True)
         if st.button("나가기"):
+            # 새 스레드로 초기화하여 이전 대화와 분리
             st.session_state.page = "upload"
-            st.session_state.messages = []
+            st.session_state.thread_id = str(uuid.uuid4())
+            st.session_state.done = False
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.write("---")
 
-    # 대화 기록 렌더링
-    for msg in st.session_state.messages:
-        # 사용자 메세지는 고정된 아바타 아이콘 사용, 챗봇은 이름에 따라 다른 이모지 사용 가능
-        avatar = msg.get("avatar", "🧑‍💻" if msg["role"] == "user" else "🤖")
-        with st.chat_message(msg["role"], avatar=avatar):
-            if msg["role"] == "assistant":
-                st.caption(f"**{msg.get('name', '심사위원')}**")
-            st.markdown(msg["content"])
+    values = graph.get_state(cfg).values
 
-    # 채팅 입력창
-    if prompt := st.chat_input("답변을 입력해주세요..."):
-        # 1. 사용자 메세지 추가
-        st.session_state.messages.append({"role": "user", "content": prompt, "avatar": "👤"})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
-            
-        # 2. 챗봇(페르소나) 응답 (모의 구현)
-        # 실제 구현시에는 여기서 LangGraph 로직을 호출하여 응답을 받아와야 합니다.
-        with st.chat_message("assistant", avatar="💼"):
-            st.caption("**투자자**")
-            message_placeholder = st.empty()
-            full_response = ""
-            # 타이핑 효과 시뮬레이션
-            mock_response = "방금 답변하신 내용은 시장 차별성 측면에서 부족해 보입니다. 이미 유사한 OOO 서비스가 시장을 점유하고 있는데, 유저가 굳이 이 서비스를 써야할 이유가 무엇인가요?"
-            for chunk in mock_response.split():
-                full_response += chunk + " "
-                time.sleep(0.1)
-                message_placeholder.markdown(full_response + "▌")
-            message_placeholder.markdown(full_response)
-            
-        st.session_state.messages.append({"role": "assistant", "name": "투자자", "content": mock_response, "avatar": "💼"})
+    # 오케스트레이터 안내 메세지
+    with st.chat_message("assistant", avatar=ORCHESTRATOR_AVATAR):
+        st.caption("**오케스트레이터**")
+        st.markdown(
+            "기획서 파싱을 완료했습니다. 지금부터 투자자, CTO, 멘토 심사위원의 "
+            "압박 질문을 시작하겠습니다. 각 질문에 답변을 입력해 주세요."
+        )
+
+    # 지금까지의 대화 기록 렌더링
+    _render_transcript(values)
+
+    # 진행 중이면 현재 질문 표시 + 답변 입력
+    if not st.session_state.done:
+        q = _current_question(graph, cfg)
+        if q:
+            persona = q["persona"]
+            with st.chat_message("assistant", avatar=PERSONA_AVATARS.get(persona, "🤖")):
+                st.caption(f"**{persona}**")
+                st.markdown(q["question"])
+
+            if answer := st.chat_input("답변을 입력해주세요..."):
+                with st.spinner("심사위원이 답변을 평가 중입니다..."):
+                    graph.invoke(Command(resume=answer), cfg)
+                if not _current_question(graph, cfg):
+                    st.session_state.done = True
+                st.rerun()
+        else:
+            st.session_state.done = True
+            st.rerun()
+
+    # 종료되면 종합 리포트 표시
+    if st.session_state.done:
+        rpt = graph.get_state(cfg).values.get("final_report", {})
+        st.divider()
+        st.subheader("📋 종합 리포트")
+        st.markdown(rpt.get("summary", ""))
+        for w in rpt.get("weaknesses", []):
+            with st.expander(
+                f"[{w['severity']}] ({w['section']}) {w['weakness_type']} — {w['persona']}"
+            ):
+                st.markdown(f"**왜 약점인가:** {w['rationale']}")
+                st.markdown(f"**보완 제안:** {w['suggestion']}")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="primary-cta-container">', unsafe_allow_html=True)
+        if st.button("새 기획서로 다시 시작", use_container_width=True):
+            st.session_state.page = "upload"
+            st.session_state.thread_id = str(uuid.uuid4())
+            st.session_state.done = False
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # 메인 앱 로직
 def main():
     inject_custom_css()
-    
+
     if st.session_state.page == "upload":
         render_upload_page()
     elif st.session_state.page == "chat":
         render_chat_page()
+
 
 if __name__ == "__main__":
     main()
