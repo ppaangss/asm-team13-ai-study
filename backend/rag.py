@@ -4,7 +4,7 @@ from pathlib import Path
 
 import chromadb
 
-from backend.config import UPSTAGE_API_KEY, CHROMA_DB_PATH, RAG_TOP_K, EXAMPLES_DIR
+from backend.config import UPSTAGE_API_KEY, CHROMA_DB_PATH, RAG_TOP_K, EXAMPLES_DIR, PERSONA_KNOWLEDGE_DIR, PERSONA_CHROMA_DB_PATH
 from backend.file_reader import read_file_text, SUPPORTED_EXTENSIONS
 from backend.parser import parse_sections
 
@@ -106,6 +106,104 @@ def retrieve(
         if total + len(doc) > MAX_RAG_CHARS:
             break
         lines.append(f"\n[출처: {meta['source']} — {meta['section']}]")
+        lines.append(doc)
+        total += len(doc)
+    return "\n".join(lines)
+
+
+# ── 페르소나 전문 지식 RAG ──────────────────────────────────────
+
+_persona_clients: dict[str, chromadb.PersistentClient] = {}
+
+
+def get_persona_collection(
+    persona: str,
+    db_path: str | None = None,
+) -> chromadb.Collection:
+    """페르소나별 ChromaDB 컬렉션 반환."""
+    global _persona_clients
+    path = db_path or PERSONA_CHROMA_DB_PATH
+    if db_path is None:
+        if persona not in _persona_clients:
+            _persona_clients[persona] = chromadb.PersistentClient(path=path)
+        client = _persona_clients[persona]
+    else:
+        client = chromadb.PersistentClient(path=path)
+    return client.get_or_create_collection(
+        name=f"persona_{persona}",
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def build_persona_index(
+    persona: str,
+    collection: chromadb.Collection | None = None,
+) -> None:
+    """knowledge/{persona}/ 마크다운 문서를 섹션 단위로 청킹해 ChromaDB에 저장."""
+    if collection is None:
+        collection = get_persona_collection(persona)
+
+    knowledge_path = Path(PERSONA_KNOWLEDGE_DIR) / persona
+    if not knowledge_path.exists():
+        return
+
+    texts, ids, metadatas = [], [], []
+    for file in sorted(knowledge_path.glob("*.md")):
+        raw = file.read_text(encoding="utf-8")
+        sections = parse_sections(raw)
+        for section_title, section_content in sections.items():
+            doc_id = f"{file.stem}::{section_title}"
+            if collection.get(ids=[doc_id])["ids"]:
+                continue
+            chunk = f"[{section_title}]\n{section_content}"
+            texts.append(chunk)
+            ids.append(doc_id)
+            metadatas.append({"source": file.stem, "section": section_title, "persona": persona})
+
+    if not texts:
+        return
+
+    embedder = _get_embedder_passage()
+    vectors = embedder.embed_documents(texts)
+    collection.add(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
+
+
+def retrieve_persona(
+    persona: str,
+    query: str,
+    top_k: int | None = None,
+    collection: chromadb.Collection | None = None,
+) -> str:
+    """페르소나 전문 문서에서 쿼리와 유사한 섹션 top_k개를 반환. 비어 있으면 ''."""
+    if collection is None:
+        collection = get_persona_collection(persona)
+    if collection.count() == 0:
+        return ""
+
+    k = top_k if top_k is not None else RAG_TOP_K
+    embedder = _get_embedder_query()
+    query_vec = embedder.embed_query(query)
+
+    try:
+        results = collection.query(
+            query_embeddings=[query_vec],
+            n_results=min(k, collection.count()),
+        )
+    except Exception:
+        return ""
+
+    docs = results.get("documents", [[]])[0]
+    metas = results.get("metadatas", [[]])[0]
+    if not docs:
+        return ""
+
+    MAX_PERSONA_RAG_CHARS = 2000
+    lines = ["=== 전문가 참고 자료 ==="]
+    total = 0
+    for doc, meta in zip(docs, metas):
+        if total + len(doc) > MAX_PERSONA_RAG_CHARS:
+            break
+        lines.append(f"\n[{meta['source']} — {meta['section']}]")
         lines.append(doc)
         total += len(doc)
     return "\n".join(lines)
