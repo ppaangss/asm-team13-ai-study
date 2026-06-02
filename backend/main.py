@@ -11,13 +11,15 @@ from langgraph.types import Command
 from backend.file_reader import extract_text, SUPPORTED_EXTENSIONS
 from backend.graph import graph
 from backend.parser import parse_sections
-from backend.rag import build_index
+from backend.rag import build_index, build_persona_index
 from backend.schemas import UploadResponse, ChatRequest, ChatEvent
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(build_index)
+    for persona in ["investor", "cto", "mentor"]:
+        await asyncio.to_thread(build_persona_index, persona)
     yield
 
 

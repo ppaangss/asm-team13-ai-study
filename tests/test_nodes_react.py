@@ -244,3 +244,35 @@ def test_should_continue_react_returns_done_when_sufficient():
     }
     result = _should_continue_react(state)
     assert result == "done"
+
+
+def test_run_analyze_includes_persona_rag_in_prompt():
+    """_run_analyze가 retrieve_persona 결과를 프롬프트에 포함하는지 확인."""
+    state = {
+        **SAMPLE_STATE,
+        "sections_by_persona": {
+            "investor": {"5. 수익 모델": "초기 무료, 추후 프리미엄"},
+        },
+        "orchestrator_request": {},
+    }
+
+    async def run():
+        captured = {}
+
+        with patch("backend.nodes.llm") as mock_llm, \
+             patch("backend.nodes.retrieve_persona", return_value="=== 전문가 참고 자료 ===\n[unit_economics_guide — LTV]\nLTV는 고객 생애 가치다.") as mock_retrieve:
+
+            async def fake_astream(messages, *args, **kwargs):
+                captured["prompt"] = messages[-1].content
+                mock_msg = MagicMock()
+                mock_msg.content = "Unit Economics가 없습니다."
+                yield mock_msg
+
+            mock_llm.astream = fake_astream
+            from backend.nodes import investor_analyze_node
+            await investor_analyze_node(state)
+
+        assert "전문가 참고 자료" in captured["prompt"]
+
+    import asyncio
+    asyncio.run(run())

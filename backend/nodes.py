@@ -4,7 +4,7 @@ from langgraph.types import interrupt
 
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
-from backend.rag import retrieve
+from backend.rag import retrieve, retrieve_persona
 from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview
 from backend.tools import web_search
 
@@ -80,12 +80,16 @@ async def _run_analyze(persona: str, state: PlannerState) -> dict:
     follow_up = state.get("orchestrator_request", {}).get(persona, "")
     follow_up_block = f"\n\n[추가 분석 요청]\n{follow_up}" if follow_up else ""
 
+    persona_rag = retrieve_persona(persona, sections_text[:400])
+    persona_rag_block = f"\n\n{persona_rag}" if persona_rag else ""
+
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS[f"{persona}_analyze"]),
         HumanMessage(
             content=(
                 f"=== 분석 대상 섹션 ===\n{sections_text}"
-                f"{follow_up_block}\n\n"
+                f"{follow_up_block}"
+                f"{persona_rag_block}\n\n"
                 "위 섹션의 핵심 허점을 분석하세요."
             )
         ),
