@@ -113,20 +113,20 @@ def retrieve(
 
 # ── 페르소나 전문 지식 RAG ──────────────────────────────────────
 
-_persona_clients: dict[str, chromadb.PersistentClient] = {}
+_persona_client: chromadb.PersistentClient | None = None
 
 
 def get_persona_collection(
     persona: str,
     db_path: str | None = None,
 ) -> chromadb.Collection:
-    """페르소나별 ChromaDB 컬렉션 반환."""
-    global _persona_clients
+    """페르소나별 ChromaDB 컬렉션 반환. 단일 클라이언트로 3개 컬렉션 공유."""
+    global _persona_client
     path = db_path or PERSONA_CHROMA_DB_PATH
     if db_path is None:
-        if persona not in _persona_clients:
-            _persona_clients[persona] = chromadb.PersistentClient(path=path)
-        client = _persona_clients[persona]
+        if _persona_client is None:
+            _persona_client = chromadb.PersistentClient(path=path)
+        client = _persona_client
     else:
         client = chromadb.PersistentClient(path=path)
     return client.get_or_create_collection(
