@@ -17,6 +17,13 @@ class OrchestratorPlan(BaseModel):
     # {"investor": ["5. 수익 모델", "6. 시장 분석"], "cto": [...], "mentor": [...]}
 
 
+# ── 꼬리 질문 판단 스키마 ──────────────────────────────────────
+class FollowupJudge(BaseModel):
+    needs_followup: bool
+    score: int    # 0-100: 답변 핵심 커버율 (0=전혀 없음, 100=완벽히 답변)
+    reason: str   # 판단 근거 (디버그용)
+
+
 # ── ReAct 서브에이전트 스키마 ────────────────────────────────────
 class PersonaFindings(BaseModel):
     persona: Literal["investor", "cto", "mentor"]
@@ -43,6 +50,13 @@ class PlannerState(TypedDict):
     persona_findings: Annotated[list[dict], operator.add]
     review_count: int
     orchestrator_request: dict[str, str]
+    # 꼬리 질문 필드
+    followup_count: int
+    current_persona: str
+    needs_followup: bool
+    # 디버그 로그 (개발자 모드용)
+    debug_log: Annotated[list, operator.add]
+    pending_debug: dict  # followup_judge 판정 후 꼬리질문 생성 전까지 임시 보관
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────
@@ -61,6 +75,7 @@ class ChatEvent(BaseModel):
     node: str
     done: bool
     is_final: bool = False
+    debug: dict | None = None  # 개발자 모드용 디버그 페이로드
 
 
 class FinalReport(BaseModel):

@@ -20,6 +20,11 @@ SAMPLE_STATE = {
     "persona_findings": [],
     "review_count": 0,
     "orchestrator_request": {},
+    "followup_count": 0,
+    "current_persona": "",
+    "needs_followup": False,
+    "debug_log": [],
+    "pending_debug": {},
 }
 
 
@@ -244,6 +249,156 @@ def test_should_continue_react_returns_done_when_sufficient():
     }
     result = _should_continue_react(state)
     assert result == "done"
+
+
+def test_human_node_does_not_increment_round():
+    """human_node가 round를 증가시키지 않는지 확인."""
+    from unittest.mock import patch
+    with patch("backend.nodes.interrupt", return_value="테스트 답변"):
+        from backend.nodes import human_node
+        state = {**SAMPLE_STATE, "round": 2}
+        result = human_node(state)
+    assert "round" not in result
+    assert result["messages"][0]["content"] == "테스트 답변"
+
+
+def test_followup_judge_node_increments_followup_count_when_needed():
+    """needs_followup=True 시 followup_count가 증가하는지 확인."""
+    from backend.schemas import FollowupJudge
+
+    state = {
+        **SAMPLE_STATE,
+        "messages": [
+            {"role": "assistant", "name": "investor", "content": "수익 모델이 있나요?"},
+            {"role": "user", "content": "나중에 생각해볼게요."},
+        ],
+        "followup_count": 0,
+    }
+    mock_judge = FollowupJudge(needs_followup=True, score=18, reason="답변이 너무 추상적임")
+
+    async def run():
+        with patch("backend.nodes._bound_followup") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_judge)
+            from backend.nodes import followup_judge_node
+            result = await followup_judge_node(state)
+        assert result["needs_followup"] is True
+        assert result["followup_count"] == 1
+        assert "round" not in result
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_followup_judge_node_increments_round_when_sufficient():
+    """needs_followup=False 시 round가 증가하고 followup_count가 초기화되는지 확인."""
+    from backend.schemas import FollowupJudge
+
+    state = {
+        **SAMPLE_STATE,
+        "round": 1,
+        "messages": [
+            {"role": "assistant", "name": "cto", "content": "구현 가능한가요?"},
+            {"role": "user", "content": "Whisper STT 기준 300ms 이내 처리 가능합니다."},
+        ],
+        "followup_count": 1,
+    }
+    mock_judge = FollowupJudge(needs_followup=False, score=72, reason="구체적 수치 제시됨")
+
+    async def run():
+        with patch("backend.nodes._bound_followup") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_judge)
+            from backend.nodes import followup_judge_node
+            result = await followup_judge_node(state)
+        assert result["needs_followup"] is False
+        assert result["round"] == 2
+        assert result["followup_count"] == 0
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_followup_judge_node_stops_on_short_answer_after_first_followup():
+    """followup_count >= 1 이고 답변이 15자 이하면 LLM 없이 바로 False 반환하는지 확인."""
+    state = {
+        **SAMPLE_STATE,
+        "round": 0,
+        "messages": [
+            {"role": "assistant", "name": "cto", "content": "5일 안에 구현 가능한가요?"},
+            {"role": "user", "content": "네"},  # 15자 이하 짧은 답변
+        ],
+        "followup_count": 1,  # 이미 꼬리 질문 1회 진행됨
+    }
+
+    async def run():
+        with patch("backend.nodes._bound_followup") as mock_llm:
+            mock_llm.ainvoke = AsyncMock()  # 호출되면 안 됨
+            from backend.nodes import followup_judge_node
+            result = await followup_judge_node(state)
+        mock_llm.ainvoke.assert_not_called()  # LLM 미호출 확인
+        assert result["needs_followup"] is False
+        assert result["round"] == 1
+        assert result["followup_count"] == 0
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_followup_judge_node_no_followup_when_max_reached():
+    """followup_count >= MAX_FOLLOWUPS 이면 needs_followup=True여도 종료되는지 확인."""
+    from backend.schemas import FollowupJudge
+
+    state = {
+        **SAMPLE_STATE,
+        "round": 0,
+        "messages": [
+            {"role": "assistant", "name": "mentor", "content": "MVP 범위가 너무 크지 않나요?"},
+            {"role": "user", "content": "그냥 다 넣겠습니다."},
+        ],
+        "followup_count": 3,  # MAX_FOLLOWUPS 도달
+    }
+    mock_judge = FollowupJudge(needs_followup=True, score=10, reason="여전히 불충분")
+
+    async def run():
+        with patch("backend.nodes._bound_followup") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_judge)
+            from backend.nodes import followup_judge_node
+            result = await followup_judge_node(state)
+        # MAX 도달 → needs를 False 처리
+        assert result["needs_followup"] is False
+        assert result["round"] == 1
+        assert result["followup_count"] == 0
+
+    import asyncio
+    asyncio.run(run())
+
+
+def test_route_after_followup_returns_same_persona_when_needs_followup():
+    """needs_followup=True 시 current_persona로 라우팅되는지 확인."""
+    from backend.graph import _route_after_followup
+    state = {
+        **SAMPLE_STATE,
+        "needs_followup": True,
+        "current_persona": "cto",
+        "round": 0,
+        "orchestrator_plan": [{"persona": "cto", "section": "기술", "focus": "구현"}],
+    }
+    assert _route_after_followup(state) == "cto"
+
+
+def test_route_after_followup_goes_to_reporter_when_rounds_exhausted():
+    """모든 라운드 완료 시 reporter로 라우팅되는지 확인."""
+    from backend.graph import _route_after_followup
+    state = {
+        **SAMPLE_STATE,
+        "needs_followup": False,
+        "round": 3,
+        "orchestrator_plan": [
+            {"persona": "investor", "section": "s1", "focus": "f1"},
+            {"persona": "cto", "section": "s2", "focus": "f2"},
+            {"persona": "mentor", "section": "s3", "focus": "f3"},
+        ],
+    }
+    assert _route_after_followup(state) == "reporter"
 
 
 def test_run_analyze_includes_persona_rag_in_prompt():

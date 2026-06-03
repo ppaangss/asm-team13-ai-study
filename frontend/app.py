@@ -16,9 +16,26 @@ def inject_custom_css():
         /* Pretendard 가변 폰트 불러오기 */
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
 
-        /* 전체 폰트 적용 (가변 폰트 지원) */
-        * {
-            font-family: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif !important;
+        /* Material Icons 폰트 명시 로드 */
+        @import url('https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined');
+
+        /* Material Icons 폰트 보존 */
+        .material-icons,
+        [class*="material-icons"],
+        [data-testid="stIcon"],
+        span[class*="Icon"] {
+            font-family: 'Material Icons', 'Material Icons Outlined', 'Material Symbols Outlined' !important;
+        }
+
+        /* 전체 폰트 적용 — Material Icons 관련 요소 제외, 이모지 폰트 fallback 포함 */
+        *:not(.material-icons):not([class*="material-icons"]):not([data-testid="stIcon"]):not(span[class*="Icon"]) {
+            font-family: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif,
+                         'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji' !important;
+        }
+
+        /* 파일 업로더 드롭존 아이콘 — 폰트 렌더링 실패 시 숨김 처리 */
+        [data-testid="stFileUploaderDropzone"] [data-testid="stIcon"] {
+            display: none !important;
         }
 
         /* 전체 배경색 (Coinbase Canvas) */
@@ -184,6 +201,12 @@ if "is_done" not in st.session_state:
     st.session_state.is_done = False
 if "chat_started" not in st.session_state:
     st.session_state.chat_started = False
+if "dev_mode" not in st.session_state:
+    st.session_state.dev_mode = False
+if "debug_log" not in st.session_state:
+    st.session_state.debug_log = []
+if "debug_selected" not in st.session_state:
+    st.session_state.debug_selected = None
 
 
 def render_upload_page():
@@ -233,15 +256,15 @@ def render_upload_page():
     with st.container():
         st.markdown('<span class="upload-container-marker"></span>', unsafe_allow_html=True)
         st.markdown('<h2 style="font-size: 24px; margin-bottom: 8px;">기획서 업로드</h2>', unsafe_allow_html=True)
-        st.markdown('<p style="margin-bottom: 24px;">TXT 또는 PDF 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="margin-bottom: 24px;">TXT, MD, PDF 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
 
-        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'pdf'], label_visibility="collapsed")
+        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'md', 'pdf'], label_visibility="collapsed")
 
         if uploaded_file is not None:
             st.success(f"'{uploaded_file.name}' 파일이 성공적으로 업로드 되었습니다!")
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown('<div class="primary-cta-container">', unsafe_allow_html=True)
-            if st.button("🚀 모의 심사 시작하기", use_container_width=True):
+            if st.button("모의 심사 시작하기", use_container_width=True):
                 with st.spinner("기획서 분석 중..."):
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "text/plain")}
                     resp = httpx.post(f"{API_BASE}/upload", files=files)
@@ -267,7 +290,6 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
     current_node = None
     full_response = ""
     placeholder = None
-    chat_ctx = None
 
     with httpx.Client(timeout=120) as client:
         if method == "GET_WITH_PARAMS":
@@ -290,12 +312,22 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
 
                 node = event.get("node", "")
                 token = event.get("token", "")
+
+                # 개발자 모드: debug 이벤트 수집
+                if node == "dev":
+                    debug_data = event.get("debug")
+                    if debug_data:
+                        st.session_state.debug_log.append(debug_data)
+                    continue
+
                 if not token:
                     continue
 
                 if node != current_node:
-                    if full_response and placeholder:
-                        # save previous message
+                    if full_response and current_node:
+                        # 이전 노드 메시지 저장
+                        if placeholder:
+                            placeholder.markdown(full_response)
                         st.session_state.messages.append({
                             "role": "assistant",
                             "name": current_node,
@@ -306,16 +338,16 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
                     full_response = ""
                     avatar = PERSONA_AVATAR.get(node, "🤖")
                     name = PERSONA_NAME.get(node, node)
-                    chat_ctx = st.chat_message("assistant", avatar=avatar)
-                    chat_ctx.__enter__()
-                    st.caption(f"**{name}**")
-                    placeholder = st.empty()
+                    # with 블록으로 컨텍스트를 올바르게 닫음; placeholder는 블록 밖에서도 업데이트 가능
+                    with st.chat_message("assistant", avatar=avatar):
+                        st.caption(f"**{name}**")
+                        placeholder = st.empty()
 
                 full_response += token
                 if placeholder:
                     placeholder.markdown(full_response + "▌")
 
-    # Save final message
+    # 최종 노드 메시지 저장
     if full_response and current_node:
         st.session_state.messages.append({
             "role": "assistant",
@@ -325,20 +357,81 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
         })
 
 
-def render_chat_page():
-    col1, col2 = st.columns([8, 2])
-    with col1:
-        st.subheader("💬 기획서 검증 방")
-    with col2:
-        st.markdown('<div class="exit-button-container">', unsafe_allow_html=True)
-        if st.button("나가기"):
-            st.session_state.page = "upload"
-            st.session_state.messages = []
-            st.session_state.thread_id = None
-            st.session_state.is_done = False
-            st.session_state.chat_started = False
+def render_debug_panel():
+    """인라인 개발자 디버그 패널 — 목록/상세 네비게이션."""
+    log = st.session_state.debug_log
+    selected = st.session_state.debug_selected
+
+    st.markdown("---")
+    st.markdown("##### 꼬리질문 판단 로그")
+
+    if not log:
+        st.caption("아직 기록 없음")
+        st.markdown("---")
+        return
+
+    # ── 상세 뷰 ─────────────────────────────────────────────
+    if selected is not None and 0 <= selected < len(log):
+        if st.button("목록으로", key="_dbg_back"):
+            st.session_state.debug_selected = None
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        entry = log[selected]
+        score     = entry.get("score", "?")
+        threshold = entry.get("threshold", "?")
+        needs     = entry.get("needs_followup", False)
+        count     = entry.get("followup_count", 0)
+        result_label = "꼬리질문" if needs else "다음 라운드"
+
+        st.markdown(f"**#{selected + 1}  {count}회차 판단**")
+        st.divider()
+
+        # 점수 막대바
+        score_pct = max(0, min(100, score)) / 100 if isinstance(score, (int, float)) else 0
+        st.progress(score_pct, text=f"답변 커버율: {score}/100")
+
+        col_a, col_b = st.columns(2)
+        col_a.metric("답변 커버율", f"{score} / 100")
+        col_b.metric("판단 임계값", f"< {threshold}")
+        st.markdown(f"**결과 :** {result_label}")
+        st.caption(entry.get("reason", "-"))
+
+        st.divider()
+        st.markdown("**판단 대상 질문** (이 질문에 대한 답변이 평가됨)")
+        st.caption(entry.get("question", "-") or "-")
+        st.markdown("**제출된 답변**")
+        st.caption(entry.get("answer", "-") or "-")
+
+        followup_q = entry.get("followup_question")
+        if followup_q:
+            st.divider()
+            st.markdown("**생성된 꼬리질문** (채팅창에 표시된 질문)")
+            st.caption(followup_q)
+
+    # ── 목록 뷰 ─────────────────────────────────────────────
+    else:
+        for i, entry in enumerate(log):
+            score = entry.get("score", "?")
+            needs = entry.get("needs_followup", False)
+            count = entry.get("followup_count", 0)
+            result_label = "꼬리질문" if needs else "다음 라운드"
+            tag = "[꼬리질문]" if needs else "[다음 라운드]"
+
+            followup_tag = "  [꼬리질문 생성됨]" if entry.get("followup_question") else ""
+            btn_label = f"#{i + 1}  {count}회차  {score}/100  {tag}{followup_tag}"
+            if st.button(btn_label, key=f"_dbg_{i}", use_container_width=True):
+                st.session_state.debug_selected = i
+                st.rerun()
+
+    st.markdown("---")
+
+
+def render_chat_page():
+    col_title, col_dev = st.columns([7, 3])
+    with col_title:
+        st.subheader("기획서 검증 방")
+    with col_dev:
+        st.toggle("개발자 모드", key="dev_mode")
 
     st.write("---")
 
@@ -360,7 +453,11 @@ def render_chat_page():
         st.session_state.chat_started = True
         st.rerun()
 
-    # 사용자 입력
+    # 개발자 디버그 패널 (메시지 아래, 입력창 위)
+    if st.session_state.dev_mode:
+        render_debug_panel()
+
+    # 사용자 입력 또는 완료 후 나가기 버튼
     if not st.session_state.is_done:
         if prompt := st.chat_input("답변을 입력해주세요..."):
             st.session_state.messages.append({"role": "user", "content": prompt, "avatar": "👤"})
@@ -374,6 +471,18 @@ def render_chat_page():
             st.rerun()
     else:
         st.info("심사가 완료되었습니다. 위의 종합 리포트를 확인하세요.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="exit-button-container">', unsafe_allow_html=True)
+        if st.button("처음으로 돌아가기", use_container_width=True):
+            st.session_state.page = "upload"
+            st.session_state.messages = []
+            st.session_state.thread_id = None
+            st.session_state.is_done = False
+            st.session_state.chat_started = False
+            st.session_state.debug_log = []
+            st.session_state.debug_selected = None
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # 메인 앱 로직

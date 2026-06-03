@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 PERSONA_NODES = {"investor", "cto", "mentor", "reporter"}
+QUESTION_NODES = {"investor", "cto", "mentor"}
 
 # 업로드된 기획서 섹션을 thread_id 기준으로 서버 메모리에 보관
 _sessions: dict[str, dict[str, str]] = {}
@@ -80,19 +81,47 @@ async def chat_start(req: ChatRequest):
         "persona_findings": [],
         "review_count": 0,
         "orchestrator_request": {},
+        "followup_count": 0,
+        "current_persona": "",
+        "needs_followup": False,
+        "debug_log": [],
+        "pending_debug": {},
     }
 
     async def event_generator():
-        async for chunk in graph.astream(initial_state, config, stream_mode="messages"):
-            msg, meta = chunk
-            node = meta.get("langgraph_node", "")
-            if node in PERSONA_NODES:
-                content = getattr(msg, "content", "")
-                if content:
+        q_done: set[str] = set()
+        try:
+            async for stream_type, data in graph.astream(
+                initial_state, config, stream_mode=["messages", "updates"]
+            ):
+                if stream_type == "messages":
+                    msg, meta = data
+                    node = meta.get("langgraph_node", "")
+                    if node not in PERSONA_NODES:
+                        continue
+                    content = getattr(msg, "content", "")
+                    if not content:
+                        continue
+                    if node in QUESTION_NODES:
+                        if node in q_done:
+                            continue
+                        if '?' in content:
+                            content = content[:content.find('?') + 1]
+                            q_done.add(node)
                     event = ChatEvent(token=content, node=node, done=False)
                     yield f"data: {event.model_dump_json()}\n\n"
-        done_event = ChatEvent(token="", node="", done=True, is_final=False)
-        yield f"data: {done_event.model_dump_json()}\n\n"
+                elif stream_type == "updates":
+                    for node_output in data.values():
+                        if not isinstance(node_output, dict):
+                            continue
+                        for entry in node_output.get("debug_log", []):
+                            debug_event = ChatEvent(token="", node="dev", done=False, debug=entry)
+                            yield f"data: {debug_event.model_dump_json()}\n\n"
+        except Exception:
+            import traceback; traceback.print_exc()
+        finally:
+            done_event = ChatEvent(token="", node="", done=True, is_final=False)
+            yield f"data: {done_event.model_dump_json()}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -107,20 +136,41 @@ async def chat(req: ChatRequest):
 
     async def event_generator():
         is_final = False
-        async for chunk in graph.astream(
-            Command(resume=req.message), config, stream_mode="messages"
-        ):
-            msg, meta = chunk
-            node = meta.get("langgraph_node", "")
-            if node in PERSONA_NODES:
-                content = getattr(msg, "content", "")
-                if content:
+        q_done: set[str] = set()
+        try:
+            async for stream_type, data in graph.astream(
+                Command(resume=req.message), config, stream_mode=["messages", "updates"]
+            ):
+                if stream_type == "messages":
+                    msg, meta = data
+                    node = meta.get("langgraph_node", "")
+                    if node not in PERSONA_NODES:
+                        continue
+                    content = getattr(msg, "content", "")
+                    if not content:
+                        continue
+                    if node in QUESTION_NODES:
+                        if node in q_done:
+                            continue
+                        if '?' in content:
+                            content = content[:content.find('?') + 1]
+                            q_done.add(node)
                     is_reporter = node == "reporter"
                     event = ChatEvent(token=content, node=node, done=False, is_final=is_reporter)
                     yield f"data: {event.model_dump_json()}\n\n"
                     if is_reporter:
                         is_final = True
-        done_event = ChatEvent(token="", node="", done=True, is_final=is_final)
-        yield f"data: {done_event.model_dump_json()}\n\n"
+                elif stream_type == "updates":
+                    for node_output in data.values():
+                        if not isinstance(node_output, dict):
+                            continue
+                        for entry in node_output.get("debug_log", []):
+                            debug_event = ChatEvent(token="", node="dev", done=False, debug=entry)
+                            yield f"data: {debug_event.model_dump_json()}\n\n"
+        except Exception:
+            import traceback; traceback.print_exc()
+        finally:
+            done_event = ChatEvent(token="", node="", done=True, is_final=is_final)
+            yield f"data: {done_event.model_dump_json()}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

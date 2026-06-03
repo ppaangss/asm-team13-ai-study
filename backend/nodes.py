@@ -1,17 +1,25 @@
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.types import interrupt
 
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve, retrieve_persona
-from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview
+from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge
 from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
 _bound_llm = llm.bind_tools([web_search])
 _bound_orchestrator = llm.with_structured_output(OrchestratorPlan)
 _bound_review = llm.with_structured_output(OrchestratorReview)
+_bound_followup = llm.with_structured_output(FollowupJudge)
+
+
+def _trim_to_question(text: str) -> str:
+    """첫 번째 ? 이후 내용 제거, 앞뒤 따옴표 제거."""
+    text = text.strip().strip('"').strip("'").strip()
+    idx = text.find('?')
+    return text[:idx + 1] if idx != -1 else text
 
 
 def _format_context(state: PlannerState) -> str:
@@ -197,46 +205,59 @@ async def _run_persona(persona: str, state: PlannerState) -> dict:
         if current_findings else ""
     )
 
+    # 이전에 질문된 내용 목록 (중복 방지용)
+    asked_questions = [
+        m["content"] for m in state.get("messages", [])
+        if m.get("role") == "assistant"
+    ]
+    asked_block = (
+        "\n\n=== 이미 질문된 내용 — 아래와 동일하거나 유사한 질문 절대 금지 ===\n"
+        + "\n".join(f"- {q}" for q in asked_questions)
+    ) if asked_questions else ""
+
+    is_followup = state.get("followup_count", 0) > 0
+    if is_followup:
+        instruction = (
+            "이전 답변을 바탕으로 꼬리 질문 1개를 작성하세요.\n"
+            "규칙: [이미 질문된 내용]과 같거나 비슷한 표현으로 묻지 말 것. "
+            "다른 각도로 파고드세요. 구어체로, 따옴표 없이, 물음표 한 번만."
+        )
+    else:
+        instruction = (
+            "위 기획서, 대화 이력, 사전 분석 결과를 바탕으로 날카로운 압박 질문 1개를 작성하세요.\n"
+            "규칙: [이미 질문된 내용]과 주제가 겹치는 질문은 하지 말 것. "
+            "아직 다뤄지지 않은 새로운 허점을 골라 실제 심사 현장에서 구두로 말하는 것처럼 짧고 자연스럽게 작성하세요."
+        )
+
     base_messages = [
         SystemMessage(content=SYSTEM_PROMPTS[persona]),
         HumanMessage(
             content=(
-                f"{context}\n\n{history}{focus_context}{rag_block}{findings_block}\n\n"
-                "위 기획서, 대화 이력, 사전 분석 결과를 바탕으로 날카로운 압박 질문 1개를 생성하세요."
+                f"{context}\n\n{history}{focus_context}{rag_block}{findings_block}"
+                f"{asked_block}\n\n{instruction}"
             )
         ),
     ]
 
-    # 1단계: LLM이 tool call 여부 결정 (실패 시 직접 스트리밍으로 폴백)
-    messages = list(base_messages)
-    try:
-        tool_decision = await _bound_llm.ainvoke(base_messages)
-        if tool_decision.tool_calls:
-            # 2단계: tool call 비동기 실행 후 결과 주입
-            messages.append(tool_decision)
-            for tc in tool_decision.tool_calls:
-                tool_result = await web_search.ainvoke(tc["args"])
-                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc["id"]))
-    except Exception:
-        messages = list(base_messages)
-
-
-    # 3단계: 최종 질문 스트리밍
+    # 질문 스트리밍 (ainvoke를 사용하지 않아 이중 스트리밍 방지)
     full_content = ""
-    async for chunk in llm.astream(messages):
+    async for chunk in llm.astream(base_messages):
         if chunk.content:
             full_content += chunk.content
 
-    # tool 주입 후 모델이 text 대신 tool_call만 반환한 경우 폴백
-    if not full_content and len(messages) > len(base_messages):
-        async for chunk in llm.astream(base_messages):
-            if chunk.content:
-                full_content += chunk.content
-
-    return {
+    full_content = _trim_to_question(full_content)
+    result: dict = {
         "messages": [{"role": "assistant", "name": persona, "content": full_content}],
         "persona_outputs": [{"persona": persona, "question": full_content, "round": state["round"]}],
     }
+
+    # 꼬리질문 생성 직후: pending_debug(판단 대상 Q&A)와 지금 생성한 꼬리질문을 합쳐 debug_log emit
+    pending = state.get("pending_debug", {})
+    if is_followup and pending:
+        result["debug_log"] = [{**pending, "followup_question": full_content}]
+        result["pending_debug"] = {}
+
+    return result
 
 
 async def question_router(state: PlannerState) -> dict:
@@ -245,23 +266,114 @@ async def question_router(state: PlannerState) -> dict:
 
 
 async def investor_node(state: PlannerState) -> dict:
-    return await _run_persona("investor", state)
+    result = await _run_persona("investor", state)
+    return {**result, "current_persona": "investor"}
 
 
 async def cto_node(state: PlannerState) -> dict:
-    return await _run_persona("cto", state)
+    result = await _run_persona("cto", state)
+    return {**result, "current_persona": "cto"}
 
 
 async def mentor_node(state: PlannerState) -> dict:
-    return await _run_persona("mentor", state)
+    result = await _run_persona("mentor", state)
+    return {**result, "current_persona": "mentor"}
 
 
 def human_node(state: PlannerState) -> dict:
     """사용자 입력 대기. interrupt()로 그래프를 일시 정지한다."""
     user_answer = interrupt("user_input")
+    return {"messages": [{"role": "user", "content": user_answer}]}
+
+
+# followup_count별 최소 score 임계값: 이 값 미만이면 꼬리 질문 필요
+_FOLLOWUP_THRESHOLDS = {0: 30, 1: 15, 2: 5}
+
+
+async def followup_judge_node(state: PlannerState) -> dict:
+    """마지막 Q&A를 검토해 꼬리 질문 필요 여부 판단. 불필요하면 round 증가."""
+    from backend.config import MAX_FOLLOWUPS
+
+    msgs = state.get("messages", [])
+    last_q = next((m for m in reversed(msgs) if m.get("role") == "assistant"), None)
+    last_a = next((m for m in reversed(msgs) if m.get("role") == "user"), None)
+
+    qa_text = ""
+    if last_q:
+        qa_text += f"[질문 — {last_q.get('name', 'persona')}]\n{last_q['content']}\n\n"
+    if last_a:
+        qa_text += f"[답변]\n{last_a['content']}"
+
+    followup_count = state.get("followup_count", 0)
+    threshold = _FOLLOWUP_THRESHOLDS.get(followup_count, 5)
+
+    # 가드 1: 이미 꼬리 질문을 했는데 답변이 15자 이하("네", "알겠습니다" 등)이면 더 물어봐도 의미 없음
+    if followup_count >= 1 and last_a:
+        answer_text = last_a.get("content", "").strip()
+        if len(answer_text) <= 15:
+            debug_entry = {
+                "followup_count": followup_count,
+                "score": 0,
+                "threshold": threshold,
+                "needs_followup": False,
+                "reason": f"짧은 답변 감지 ({len(answer_text)}자 ≤ 15자) — LLM 미호출",
+                "question": last_q["content"] if last_q else "",
+                "answer": answer_text,
+            }
+            return {
+                "needs_followup": False,
+                "round": state["round"] + 1,
+                "followup_count": 0,
+                "debug_log": [debug_entry],
+            }
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPTS["followup_judge"]),
+        HumanMessage(
+            content=(
+                f"=== 최근 Q&A ===\n{qa_text}\n\n"
+                f"현재 꼬리 질문 횟수: {followup_count}/{MAX_FOLLOWUPS}\n"
+                f"이번 회차 임계값: score < {threshold} 이면 needs_followup=true\n"
+                "이 답변이 충분한지 판단하세요."
+            )
+        ),
+    ]
+
+    try:
+        result: FollowupJudge = await _bound_followup.ainvoke(messages)
+        score = max(0, min(100, result.score))
+        reason = result.reason
+        # LLM의 needs_followup을 신뢰하지 않고 score < threshold로 직접 판단
+        needs = (score < threshold) and (followup_count < MAX_FOLLOWUPS)
+    except Exception:
+        needs = False
+        score = -1
+        reason = "LLM 호출 실패"
+
+    base_entry = {
+        "followup_count": followup_count,
+        "score": score,
+        "threshold": threshold,
+        "needs_followup": needs,
+        "reason": reason,
+        "question": last_q["content"] if last_q else "",
+        "answer": last_a["content"] if last_a else "",
+    }
+
+    if needs:
+        # 꼬리질문이 아직 생성되지 않았으므로 pending에 보관.
+        # 페르소나 노드가 꼬리질문 생성 후 followup_question 필드를 추가해 debug_log에 emit.
+        return {
+            "needs_followup": True,
+            "followup_count": followup_count + 1,
+            "pending_debug": base_entry,
+        }
     return {
-        "messages": [{"role": "user", "content": user_answer}],
+        "needs_followup": False,
         "round": state["round"] + 1,
+        "followup_count": 0,
+        "debug_log": [base_entry],
+        "pending_debug": {},
     }
 
 

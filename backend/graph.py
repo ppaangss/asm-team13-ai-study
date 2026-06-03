@@ -2,7 +2,7 @@ from typing import Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 
-from backend.config import MAX_ROUNDS, PERSONA_ORDER
+from backend.config import MAX_ROUNDS, MAX_FOLLOWUPS, PERSONA_ORDER
 from backend.schemas import PlannerState
 from backend.nodes import (
     orchestrator_node,
@@ -10,7 +10,7 @@ from backend.nodes import (
     orchestrator_review_node,
     question_router,
     investor_node, cto_node, mentor_node,
-    human_node, reporter_node,
+    human_node, followup_judge_node, reporter_node,
 )
 
 _checkpointer = InMemorySaver()
@@ -39,16 +39,16 @@ def _route_to_question_persona(state: PlannerState) -> Literal["investor", "cto"
     return PERSONA_ORDER[state["round"] % len(PERSONA_ORDER)]
 
 
-def _route_after_human(state: PlannerState) -> Literal["investor", "cto", "mentor", "reporter"]:
-    """현재 라운드에 해당하는 페르소나로 라우팅. 계획이 없으면 round-robin 폴백."""
-    if state["round"] >= MAX_ROUNDS:
-        return "reporter"
+def _route_after_followup(state: PlannerState) -> Literal["investor", "cto", "mentor", "question_router", "reporter"]:
+    """꼬리 질문 여부에 따라 라우팅. needs_followup이면 같은 페르소나, 아니면 다음 라운드."""
+    if state.get("needs_followup", False):
+        persona = state.get("current_persona", "investor")
+        return persona if persona in _ALL_PERSONAS else "investor"
+
     plan = state.get("orchestrator_plan", [])
-    if plan and state["round"] < len(plan):
-        persona = plan[state["round"]]["persona"]
-        if persona in _ALL_PERSONAS:
-            return persona
-    return PERSONA_ORDER[state["round"] % len(PERSONA_ORDER)]
+    if state["round"] >= len(plan) or state["round"] >= MAX_ROUNDS:
+        return "reporter"
+    return "question_router"
 
 
 def build_graph():
@@ -65,6 +65,7 @@ def build_graph():
     builder.add_node("cto", cto_node)
     builder.add_node("mentor", mentor_node)
     builder.add_node("human", human_node)
+    builder.add_node("followup_judge", followup_judge_node)
     builder.add_node("reporter", reporter_node)
 
     # 시작: orchestrator → 3개 analyze 노드 순차 실행
@@ -78,10 +79,7 @@ def build_graph():
     builder.add_conditional_edges(
         "orchestrator_review",
         _should_continue_react,
-        {
-            "continue": "investor_analyze",
-            "done": "question_router",
-        },
+        {"continue": "investor_analyze", "done": "question_router"},
     )
 
     # question_router → 라운드별 페르소나로 라우팅
@@ -96,11 +94,18 @@ def build_graph():
     builder.add_edge("cto", "human")
     builder.add_edge("mentor", "human")
 
-    # human 이후 다음 라운드 라우팅
+    # human → followup_judge → 꼬리질문 or 다음 라운드
+    builder.add_edge("human", "followup_judge")
     builder.add_conditional_edges(
-        "human",
-        _route_after_human,
-        {"investor": "investor", "cto": "cto", "mentor": "mentor", "reporter": "reporter"},
+        "followup_judge",
+        _route_after_followup,
+        {
+            "investor": "investor",
+            "cto": "cto",
+            "mentor": "mentor",
+            "question_router": "question_router",
+            "reporter": "reporter",
+        },
     )
 
     builder.add_edge("reporter", END)

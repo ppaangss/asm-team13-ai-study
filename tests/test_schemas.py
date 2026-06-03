@@ -76,6 +76,28 @@ def test_planner_state_has_react_fields():
     assert "orchestrator_request" in hints
 
 
+def test_planner_state_has_followup_fields():
+    """꼬리 질문 필드가 PlannerState에 존재하는지 확인."""
+    from typing import get_type_hints
+    hints = get_type_hints(PlannerState)
+    assert "followup_count" in hints
+    assert "current_persona" in hints
+    assert "needs_followup" in hints
+
+
+def test_followup_judge_schema():
+    """FollowupJudge 스키마가 올바르게 생성되는지 확인."""
+    from backend.schemas import FollowupJudge
+    j = FollowupJudge(needs_followup=True, score=18, reason="답변이 추상적임")
+    assert j.needs_followup is True
+    assert j.score == 18
+    assert j.reason == "답변이 추상적임"
+
+    j2 = FollowupJudge(needs_followup=False, score=75, reason="충분한 수치 제시")
+    assert j2.needs_followup is False
+    assert j2.score == 75
+
+
 def test_persona_findings_schema():
     from backend.schemas import PersonaFindings
     f = PersonaFindings(
