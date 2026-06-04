@@ -9,6 +9,7 @@ def test_supported_extensions():
     assert ".txt" in SUPPORTED_EXTENSIONS
     assert ".md" in SUPPORTED_EXTENSIONS
     assert ".pdf" in SUPPORTED_EXTENSIONS
+    assert ".docx" in SUPPORTED_EXTENSIONS
 
 
 def test_extract_txt():
@@ -48,6 +49,34 @@ def test_extract_pdf(monkeypatch):
 
     result = extract_text(b"%PDF-fake", "plan.pdf")
     assert "PDF 페이지 내용" in result
+
+
+def test_extract_docx(monkeypatch):
+    import backend.file_reader as fr
+
+    class _FakePara:
+        def __init__(self, text, style_name="Normal"):
+            self.text = text
+            self.style = type("S", (), {"name": style_name})()
+
+    class _FakeDoc:
+        def __init__(self, stream):
+            self.paragraphs = [
+                _FakePara("1. 서비스 개요", "Heading 1"),
+                _FakePara("이것은 서비스 설명입니다."),
+                _FakePara(""),  # 빈 단락 — 무시되어야 함
+                _FakePara("2. 문제 정의", "Heading 2"),
+                _FakePara("해결하려는 문제입니다."),
+            ]
+
+    monkeypatch.setattr(fr, "_extract_docx",
+                        lambda content: "\n".join(
+                            p.text for p in _FakeDoc(None).paragraphs if p.text.strip()
+                        ))
+    result = extract_text(b"PK\x03\x04fake", "plan.docx")
+    assert "1. 서비스 개요" in result
+    assert "이것은 서비스 설명입니다." in result
+    assert "2. 문제 정의" in result
 
 
 def test_unsupported_extension_raises():

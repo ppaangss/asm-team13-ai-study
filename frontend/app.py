@@ -256,9 +256,9 @@ def render_upload_page():
     with st.container():
         st.markdown('<span class="upload-container-marker"></span>', unsafe_allow_html=True)
         st.markdown('<h2 style="font-size: 24px; margin-bottom: 8px;">기획서 업로드</h2>', unsafe_allow_html=True)
-        st.markdown('<p style="margin-bottom: 24px;">TXT, MD, PDF 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="margin-bottom: 24px;">TXT, MD, PDF, DOCX 형식의 기획서를 올려주시면 즉시 분석을 시작합니다.</p>', unsafe_allow_html=True)
 
-        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'md', 'pdf'], label_visibility="collapsed")
+        uploaded_file = st.file_uploader("파일 첨부", type=['txt', 'md', 'pdf', 'docx'], label_visibility="collapsed")
 
         if uploaded_file is not None:
             st.success(f"'{uploaded_file.name}' 파일이 성공적으로 업로드 되었습니다!")
@@ -267,8 +267,18 @@ def render_upload_page():
             if st.button("모의 심사 시작하기", use_container_width=True):
                 with st.spinner("기획서 분석 중..."):
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "text/plain")}
-                    resp = httpx.post(f"{API_BASE}/upload", files=files)
-                    if resp.status_code != 200:
+                    try:
+                        resp = httpx.post(f"{API_BASE}/upload", files=files, timeout=30)
+                    except httpx.ConnectError:
+                        st.error("백엔드 서버에 연결할 수 없습니다. `uvicorn backend.main:app --reload` 명령으로 서버를 먼저 실행해주세요.")
+                        st.stop()
+                    except httpx.TimeoutException:
+                        st.error("서버 응답 시간이 초과됐습니다. 서버 로그를 확인해주세요.")
+                        st.stop()
+                    if resp.status_code == 503:
+                        detail = resp.json().get("detail", "")
+                        st.error(f"API 키 미설정\n\n{detail}\n\n`.env` 파일 예시:\n```\nUPSTAGE_API_KEY=your_key_here\nTAVILY_API_KEY=your_key_here\n```")
+                    elif resp.status_code != 200:
                         st.error(f"업로드 실패: {resp.text}")
                     else:
                         data = resp.json()

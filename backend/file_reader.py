@@ -4,7 +4,7 @@ import io
 import re
 from pathlib import Path
 
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
 
 def extract_text(content: bytes, filename: str) -> str:
@@ -16,7 +16,9 @@ def extract_text(content: bytes, filename: str) -> str:
         return _process_md(content.decode("utf-8"))
     if suffix == ".pdf":
         return _extract_pdf(content)
-    raise ValueError(f"지원하지 않는 파일 형식: {suffix}. 허용: txt, md, pdf")
+    if suffix == ".docx":
+        return _extract_docx(content)
+    raise ValueError(f"지원하지 않는 파일 형식: {suffix}. 허용: txt, md, pdf, docx")
 
 
 def read_file_text(path: Path) -> str:
@@ -39,3 +41,18 @@ def _extract_pdf(content: bytes) -> str:
     reader = PdfReader(io.BytesIO(content))
     pages = [page.extract_text() or "" for page in reader.pages]
     return "\n".join(pages)
+
+
+def _extract_docx(content: bytes) -> str:
+    from docx import Document
+    doc = Document(io.BytesIO(content))
+    lines = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+        # Heading 스타일이면 앞줄 구분을 위해 빈 줄 추가 (섹션 파서 인식률 향상)
+        if para.style.name.startswith("Heading"):
+            lines.append("")
+        lines.append(text)
+    return "\n".join(lines)
