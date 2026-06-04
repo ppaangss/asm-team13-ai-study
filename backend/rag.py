@@ -6,7 +6,7 @@ import chromadb
 
 from backend.config import UPSTAGE_API_KEY, CHROMA_DB_PATH, RAG_TOP_K, EXAMPLES_DIR, PERSONA_KNOWLEDGE_DIR, PERSONA_CHROMA_DB_PATH
 from backend.file_reader import read_file_text, SUPPORTED_EXTENSIONS
-from backend.parser import parse_sections
+from backend.parser import parse_sections, parse_markdown_sections
 
 
 def _get_embedder_passage():
@@ -150,11 +150,15 @@ def build_persona_index(
     texts, ids, metadatas = [], [], []
     for file in sorted(knowledge_path.glob("*.md")):
         raw = file.read_text(encoding="utf-8")
-        sections = parse_sections(raw)
+        sections = parse_markdown_sections(raw)
+
+        # 파일의 스테일 청크를 삭제하고 재인덱싱
+        existing = collection.get(where={"source": file.stem})
+        if existing["ids"]:
+            collection.delete(ids=existing["ids"])
+
         for section_title, section_content in sections.items():
             doc_id = f"{file.stem}::{section_title}"
-            if collection.get(ids=[doc_id])["ids"]:
-                continue
             chunk = f"[{section_title}]\n{section_content}"
             texts.append(chunk)
             ids.append(doc_id)

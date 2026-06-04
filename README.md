@@ -15,7 +15,7 @@ AI 페르소나(투자자·CTO·멘토)가 기획서를 라운드제로 심사�
 
 ### 2. ReAct 서브에이전트 아키텍처
 ```
-START → orchestrator
+START → orchestrator → verification
      → investor_analyze → cto_analyze → mentor_analyze
      → orchestrator_review (ReAct 루프, 최대 2회)
      → question_router → [investor | cto | mentor]
@@ -25,7 +25,22 @@ START → orchestrator
 - `orchestrator_review` 가 서브에이전트 분석 결과를 검토하고 품질이 불충분하면 재분석을 요청합니다 (ReAct 루프).
 - `question_router` 가 오케스트레이터 계획에 따라 라운드별 질문 페르소나를 결정합니다.
 
-### 3. 꼬리 질문 시스템
+### 3. 기획서 사전 체크리스트 (검증 에이전트)
+분석 시작 전 `verification_node`가 7개 항목을 자동 점검하고 UI에 결과를 표시합니다.
+
+| # | 항목 | 상태 |
+|---|------|------|
+| 1 | 출처 검증 | 시장 데이터·통계 출처 명시 여부 |
+| 2 | BM 명확성 | 수익 모델·가격 정책 구체성 |
+| 3 | 문제 구체성 | 해결 문제의 수치 근거 여부 |
+| 4 | 차별화 근거 | 경쟁사 대비 차별점 명확성 |
+| 5 | 기술 실현성 | MVP 내 기술 구현 가능성 |
+| 6 | MVP 범위 | 첫 출시 범위의 현실성 |
+| 7 | 팀 적합성 | 팀 역량과 문제 간 연관성 |
+
+각 항목은 `pass / warn / fail` 로 분류되며, 사이드바에 ✅/⚠️/❌ 카드로 표시됩니다.
+
+### 4. 꼬리 질문 시스템
 `followup_judge` 가 사용자 답변의 핵심 커버율(0~100)을 판단하고, 점수가 임계값 미만이면 같은 페르소나가 꼬리 질문을 이어서 합니다.
 
 | 꼬리 질문 횟수 | 임계값 |
@@ -36,17 +51,29 @@ START → orchestrator
 
 > `needs_followup`은 LLM 구조화 출력에 의존하지 않고, `score < threshold`를 코드에서 직접 판정합니다.
 
-### 4. 페르소나별 RAG (Retrieval-Augmented Generation)
-- **예시 기획서 RAG** — `data/examples/`에 저장된 기획서 예시로 오케스트레이터 분석을 보강합니다.
-- **페르소나 전문 지식 RAG** — `knowledge/{investor,cto,mentor}/` 의 21개 전문 문서(VC 평가 프레임워크, LLM 함정, PMF 검증 등)를 ChromaDB에 인덱싱해 페르소나 분석 시 주입합니다.
+### 5. 페르소나별 RAG (Retrieval-Augmented Generation)
+
+**예시 기획서 RAG**
+- `data/examples/`에 저장된 기획서 예시(~139청크)를 오케스트레이터 분석에 활용합니다.
+- 10개 도메인을 커버합니다: AI 교육·헬스케어·핀테크·법률·HR·이커머스·기업교육·고객서비스·부동산·물류SCM
+
+**페르소나 전문 지식 RAG**
+- `knowledge/{investor,cto,mentor}/` 의 21개 전문 문서를 ChromaDB에 인덱싱해 페르소나 분석 시 주입합니다.
+- `parse_markdown_sections()` 로 `##` 헤더 단위 청킹 → **160청크** (기존 27청크 대비 5.9배)
 - 임베딩 모델: `solar-embedding-1-large` (Upstage)
 
-### 5. 실시간 스트리밍
+| 페르소나 | 문서 수 | 청크 수 | 주요 문서 |
+|---------|---------|---------|---------|
+| investor | 7 | 56 | VC 평가 프레임워크, 유닛 이코노믹스, 시장 규모 산정 |
+| cto | 7 | 49 | LLM 함정, AI 비용 구조, 아키텍처 체크리스트 |
+| mentor | 7 | 55 | PMF 검증, GTM 전략, 피벗 시나리오 |
+
+### 6. 실시간 스트리밍
 - FastAPI `StreamingResponse` + SSE로 LLM 토큰을 실시간 전송합니다.
 - LangGraph `stream_mode=["messages", "updates"]` 사용 — 토큰 스트리밍과 디버그 이벤트를 동시에 수신합니다.
 - `httpx.RemoteProtocolError` 에 대한 try/except/finally 보호 처리가 되어 있으며, `done` 이벤트는 항상 전송됩니다.
 
-### 6. 개발자 모드 디버그 패널
+### 7. 개발자 모드 디버그 패널
 사이드바 토글로 활성화하며, 라운드별 심사 내역을 실시간으로 확인할 수 있습니다.
 
 - 라운드·페르소나·꼬리 질문 횟수 표시
@@ -54,12 +81,17 @@ START → orchestrator
 - 판단 임계값 및 최종 판정 (꼬리 질문 / 다음 라운드)
 - 생성된 꼬리 질문 전문
 
-### 7. 최종 리포트
+### 8. 최종 리포트
 모든 라운드 종료 후 `reporter` 노드가 심사 결과를 종합해 약점 목록과 총평을 생성합니다.
 
-### 8. 파일 업로드
-- 지원 형식: `.txt`, `.md`, `.pdf`
+### 9. 파일 업로드
+- 지원 형식: `.txt`, `.md`, `.pdf`, `.docx` (Word 파일 지원 추가)
 - 업로드 시 기획서를 섹션 단위로 파싱하고, 새 UUID `thread_id`로 세션을 격리합니다.
+
+### 10. API 키 가드레일
+- 서버 시작 시 누락된 API 키를 감지해 경고를 출력합니다.
+- `/upload` 호출 시 키가 없으면 503 응답과 `.env` 설정 안내를 반환합니다.
+- 프론트엔드에서 503 수신 시 설정 방법을 사용자에게 직접 안내합니다.
 
 ---
 
@@ -71,7 +103,7 @@ START → orchestrator
 | 워크플로우 | LangGraph `StateGraph` + `InMemorySaver` |
 | 임베딩 / RAG | `solar-embedding-1-large` + ChromaDB |
 | 백엔드 | FastAPI + `asyncio` |
-| 프론트엔드 | Streamlit 1.57 (Pretendard 폰트, Coinbase 스타일 디자인) |
+| 프론트엔드 | Streamlit (Pretendard 폰트, Coinbase 스타일 디자인) |
 | 트레이싱 | LangSmith (`.env`에서 설정) |
 
 ---
@@ -82,23 +114,24 @@ START → orchestrator
 .
 ├── backend/
 │   ├── config.py        # 환경 변수 및 상수
-│   ├── file_reader.py   # TXT/MD/PDF 텍스트 추출
+│   ├── file_reader.py   # TXT/MD/PDF/DOCX 텍스트 추출
 │   ├── graph.py         # LangGraph 그래프 정의 및 라우팅
 │   ├── main.py          # FastAPI 서버 (upload / chat/start / chat)
-│   ├── nodes.py         # 모든 노드 구현
-│   ├── parser.py        # 기획서 섹션 파싱
+│   ├── nodes.py         # 모든 노드 구현 (verification_node 포함)
+│   ├── parser.py        # 기획서 섹션 파싱 (parse_sections / parse_markdown_sections)
 │   ├── prompts.py       # 페르소나별 시스템 프롬프트
 │   ├── rag.py           # ChromaDB 인덱스 빌드 및 검색
 │   ├── schemas.py       # Pydantic 스키마 + LangGraph State
 │   └── tools.py         # 웹 검색 도구 (Tavily)
 ├── frontend/
-│   └── app.py           # Streamlit 앱
+│   └── app.py           # Streamlit 앱 (체크리스트 패널 포함)
 ├── knowledge/
-│   ├── investor/        # 투자자 전문 지식 (7개 문서)
-│   ├── cto/             # CTO 전문 지식 (7개 문서)
-│   └── mentor/          # 멘토 전문 지식 (7개 문서)
-├── tests/               # pytest 테스트 (61개)
-└── data/                # ChromaDB + 예시 기획서 (로컬 전용, 미커밋)
+│   ├── investor/        # 투자자 전문 지식 (7개 문서, 56청크)
+│   ├── cto/             # CTO 전문 지식 (7개 문서, 49청크)
+│   └── mentor/          # 멘토 전문 지식 (7개 문서, 55청크)
+├── tests/               # pytest 테스트 (67개)
+├── requirements.txt     # 의존성 패키지 (18개 고정 버전)
+└── data/                # ChromaDB + 예시 기획서 (로컬 전용, .gitignore)
 ```
 
 ---
@@ -135,7 +168,7 @@ uvicorn backend.main:app --reload
 streamlit run frontend/app.py
 ```
 
-브라우저에서 `http://localhost:8501` 접속 후 기획서 파일(.txt / .md / .pdf)을 업로드하면 심사가 시작됩니다.
+브라우저에서 `http://localhost:8501` 접속 후 기획서 파일을 업로드하면 심사가 시작됩니다.
 
 ---
 
@@ -145,7 +178,7 @@ streamlit run frontend/app.py
 pytest tests/ -v
 ```
 
-61개 테스트 통과 기준으로 관리합니다.
+67개 테스트 전원 통과 (API 키 불필요, 외부 서비스 Mock 처리).
 
 ---
 
@@ -155,3 +188,5 @@ pytest tests/ -v
 - **단일 스트리밍 소스** — `_run_persona` 내에서 `llm.astream()` 만 사용합니다. `ainvoke()` + `astream()` 혼용 시 LangGraph가 두 LLM 호출을 모두 스트리밍해 채팅 표시 질문과 디버그 로그 질문이 달라지는 이중 스트리밍 버그가 발생합니다.
 - **꼬리 질문 임계값 코드 강제** — LLM의 `needs_followup` 필드를 신뢰하지 않고, `score < threshold`를 직접 계산합니다. LLM이 score=30, threshold=15 상황에서도 `needs_followup=True`를 반환하는 경우가 있었기 때문입니다.
 - **`pending_debug` 2-phase 패턴** — `followup_judge_node`에서 Q·A·score를 `pending_debug`에 임시 보관하고, 페르소나 노드가 꼬리 질문 생성 후 `debug_log`에 병합합니다. 이 덕분에 하나의 디버그 항목에 판정 정보와 생성 질문이 모두 담깁니다.
+- **마크다운 청킹 분리** — 기획서 파싱(`parse_sections`)과 지식 문서 파싱(`parse_markdown_sections`)을 별도 함수로 분리했습니다. 기획서는 `^\d+\.` 번호 섹션 패턴을, 지식 문서는 `##` 헤더 패턴을 사용합니다. 혼용 시 지식 문서 본문의 번호 리스트 아이템이 잘못 섹션으로 인식되어 청크가 왜곡됩니다.
+- **스테일 청크 교체** — `build_persona_index`는 파일별로 기존 청크를 삭제 후 재인덱싱합니다. 지식 문서 수정 시 서버 재시작만으로 ChromaDB가 최신 상태로 갱신됩니다.
