@@ -10,7 +10,12 @@ def temp_chroma_path(tmp_path):
     db_dir = tmp_path / "test_chroma"
     yield str(db_dir)
     if db_dir.exists():
-        shutil.rmtree(db_dir)
+        try:
+            shutil.rmtree(db_dir)
+        except PermissionError:
+            # 테스트 프로세스가 살아있어 안 지워지는 건 
+            # OS나 pytest의 자체 가비지 컬렉션 단계로 넘겨서 에러를 우회함
+            pass
 
 def test_rag_idempotency_and_retrieval(temp_chroma_path):
     print("\n--- [테스트 1] 일반 RAG 멱등성 및 검색 품질 테스트 ---")
@@ -60,7 +65,7 @@ def test_persona_rag_retrieval(temp_chroma_path):
         
     # 3. 도메인 지식 검색 테스트
     # CTO 지식 문서에 있을 법한 아키텍처 관련 질문 던지기
-    test_query = "MSA 아키텍처나 대규모 트래픽 분산 전략에 대해 알려줘"
+    test_query = "초기에 돈 낭비 안 하려면 시스템 만들 때 뭘 제일 먼저 준비해야 돼?"
     result = retrieve_persona(persona=persona, query=test_query, top_k=2, collection=collection)
     
     print(f"\n[{persona} 페르소나 검색 결과 샘플]:")
@@ -68,3 +73,4 @@ def test_persona_rag_retrieval(temp_chroma_path):
     
     assert "=== 전문가 참고 자료 ===" in result
 
+    
