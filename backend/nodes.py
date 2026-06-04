@@ -351,6 +351,7 @@ async def followup_judge_node(state: PlannerState) -> dict:
         reason = "예외 처리 발생 — LLM 호출 오류"
 
     base_entry = {
+        "type": "followup_judge",
         "followup_count": followup_count,
         "score": score,
         "threshold": threshold,
