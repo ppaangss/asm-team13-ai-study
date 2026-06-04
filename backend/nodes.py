@@ -333,10 +333,10 @@ async def followup_judge_node(state: PlannerState) -> dict:
         if len(answer_text) <= 15:
             debug_entry = {
                 "followup_count": followup_count,
-                "score": 0,
+                "score": None,
                 "threshold": threshold,
                 "needs_followup": False,
-                "reason": f"짧은 답변 감지 ({len(answer_text)}자 ≤ 15자) — LLM 미호출",
+                "reason": f"짧은 답변 감지 ({len(answer_text)}자 ≤ 15자) — 측정 생략",
                 "question": last_q["content"] if last_q else "",
                 "answer": answer_text,
             }
@@ -367,7 +367,7 @@ async def followup_judge_node(state: PlannerState) -> dict:
         needs = (score < threshold) and (followup_count < MAX_FOLLOWUPS)
     except Exception:
         needs = False
-        score = -1
+        score = None
         reason = "LLM 호출 실패"
 
     base_entry = {

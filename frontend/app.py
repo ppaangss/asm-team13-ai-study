@@ -430,21 +430,23 @@ def render_debug_panel():
             st.rerun()
 
         entry = log[selected]
-        score     = entry.get("score", "?")
+        raw_score = entry.get("score")
         threshold = entry.get("threshold", "?")
         needs     = entry.get("needs_followup", False)
         count     = entry.get("followup_count", 0)
         result_label = "꼬리질문" if needs else "다음 라운드"
 
+        score_display = f"{raw_score} / 100" if isinstance(raw_score, (int, float)) else "측정 불가"
+        score_pct     = max(0, min(100, raw_score)) / 100 if isinstance(raw_score, (int, float)) else 0
+
         st.markdown(f"**#{selected + 1}  {count}회차 판단**")
         st.divider()
 
         # 점수 막대바
-        score_pct = max(0, min(100, score)) / 100 if isinstance(score, (int, float)) else 0
-        st.progress(score_pct, text=f"답변 커버율: {score}/100")
+        st.progress(score_pct, text=f"답변 커버율: {score_display}")
 
         col_a, col_b = st.columns(2)
-        col_a.metric("답변 커버율", f"{score} / 100")
+        col_a.metric("답변 커버율", score_display)
         col_b.metric("판단 임계값", f"< {threshold}")
         st.markdown(f"**결과 :** {result_label}")
         st.caption(entry.get("reason", "-"))
@@ -464,14 +466,14 @@ def render_debug_panel():
     # ── 목록 뷰 ─────────────────────────────────────────────
     else:
         for i, entry in enumerate(log):
-            score = entry.get("score", "?")
+            raw_score = entry.get("score")
             needs = entry.get("needs_followup", False)
             count = entry.get("followup_count", 0)
-            result_label = "꼬리질문" if needs else "다음 라운드"
             tag = "[꼬리질문]" if needs else "[다음 라운드]"
+            score_label = f"{raw_score}/100" if isinstance(raw_score, (int, float)) else "측정불가"
 
             followup_tag = "  [꼬리질문 생성됨]" if entry.get("followup_question") else ""
-            btn_label = f"#{i + 1}  {count}회차  {score}/100  {tag}{followup_tag}"
+            btn_label = f"#{i + 1}  {count}회차  {score_label}  {tag}{followup_tag}"
             if st.button(btn_label, key=f"_dbg_{i}", use_container_width=True):
                 st.session_state.debug_selected = i
                 st.rerun()
