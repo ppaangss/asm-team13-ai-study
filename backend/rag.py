@@ -25,6 +25,18 @@ def _get_reranker():
     return UpstageRerank(model="solar-reranking-1-lite", api_key=UPSTAGE_API_KEY)
 
 
+# ── [추가] 대안 1: 하이브리드 청킹을 위한 TextSplitter 세팅 ──────────────────────
+def _get_text_splitter():
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    # 섹션 내부가 2000자 제한을 넘겨 누락되는 것을 막기 위해 800자 단위로 자르고, 200자 오버랩 설정
+    return RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=200,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""]
+    )
+
+
 _persistent_client: chromadb.PersistentClient | None = None
 
 
@@ -51,20 +63,36 @@ def build_index(collection: chromadb.Collection | None = None) -> None:
     if not examples_path.exists():
         return
 
+    # [수정] 대안 1 하이브리드 청커 로드
+    splitter = _get_text_splitter()
     texts, ids, metadatas = [], [], []
+    
     for file in sorted(examples_path.glob("*")):
         if file.suffix.lower() not in SUPPORTED_EXTENSIONS:
             continue
         raw = read_file_text(file)
         sections = parse_sections(raw)
+        
         for section_title, section_content in sections.items():
-            doc_id = f"{file.stem}::{section_title}"
-            if collection.get(ids=[doc_id])["ids"]:
-                continue
-            chunk = f"[{section_title}]\n{section_content}"
-            texts.append(chunk)
-            ids.append(doc_id)
-            metadatas.append({"source": file.stem, "section": section_title})
+            full_section_text = f"[{section_title}]\n{section_content}"
+            
+            # [수정] 구조 분할 후 2차적으로 글자 수 기준 슬라이싱 실행
+            chunks = splitter.split_text(full_section_text)
+            
+            for idx, chunk in enumerate(chunks):
+                # ID 중복을 막기 위해 chunk index를 접미사로 결합
+                doc_id = f"{file.stem}::{section_title}::chunk_{idx}"
+                
+                if collection.get(ids=[doc_id])["ids"]:
+                    continue
+                
+                texts.append(chunk)
+                ids.append(doc_id)
+                metadatas.append({
+                    "source": file.stem, 
+                    "section": section_title,
+                    "chunk_index": idx
+                })
 
     if not texts:
         return
@@ -167,6 +195,9 @@ def build_persona_index(
     if not knowledge_path.exists():
         return
 
+    # [수정] 대안 1 하이브리드 청커 로드
+    splitter = _get_text_splitter()
+
     for file in sorted(knowledge_path.glob("*.md")):
         raw = file.read_text(encoding="utf-8")
         sections = parse_markdown_sections(raw)
@@ -177,11 +208,21 @@ def build_persona_index(
 
         texts, ids, metadatas = [], [], []
         for section_title, section_content in sections.items():
-            doc_id = f"{file.stem}::{section_title}"
-            chunk = f"[{section_title}]\n{section_content}"
-            texts.append(chunk)
-            ids.append(doc_id)
-            metadatas.append({"source": file.stem, "section": section_title, "persona": persona})
+            full_section_text = f"[{section_title}]\n{section_content}"
+            
+            # [수정] 구조 분할 후 2차적으로 글자 수 기준 슬라이싱 실행
+            chunks = splitter.split_text(full_section_text)
+            
+            for idx, chunk in enumerate(chunks):
+                doc_id = f"{file.stem}::{section_title}::chunk_{idx}"
+                texts.append(chunk)
+                ids.append(doc_id)
+                metadatas.append({
+                    "source": file.stem, 
+                    "section": section_title, 
+                    "persona": persona,
+                    "chunk_index": idx
+                })
 
         if not texts:
             continue
