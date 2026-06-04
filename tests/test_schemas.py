@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from backend.schemas import (
     UploadResponse, ChatRequest, ChatEvent, FinalReport,
     PlannerState, OrchestratorRound, OrchestratorPlan,
+    VerificationItem, VerificationResult,
 )
 
 def test_upload_response_has_thread_id_and_persona():
@@ -125,3 +126,62 @@ def test_orchestrator_review_needs_more():
     )
     assert r.is_sufficient is False
     assert "investor" in r.follow_up_requests
+
+
+def test_verification_item_schema():
+    item = VerificationItem(label="출처 검증", status="pass", reason="Gartner 2025 보고서 인용됨")
+    assert item.label == "출처 검증"
+    assert item.status == "pass"
+    assert "Gartner" in item.reason
+
+
+def test_verification_item_invalid_status():
+    with pytest.raises(Exception):
+        VerificationItem(label="출처 검증", status="unknown", reason="테스트")
+
+
+def test_verification_result_schema():
+    result = VerificationResult(items=[
+        VerificationItem(label="출처 검증",  status="pass", reason="출처 명시됨"),
+        VerificationItem(label="BM 명확성",  status="warn", reason="단가 미기재"),
+        VerificationItem(label="문제 구체성", status="fail", reason="수치 근거 없음"),
+    ])
+    assert len(result.items) == 3
+    assert result.items[1].status == "warn"
+
+
+def test_planner_state_has_verification_field():
+    from typing import get_type_hints
+    hints = get_type_hints(PlannerState)
+    assert "verification_results" in hints
+
+
+def test_verification_node_returns_items():
+    """verification_node가 verification_results와 debug_log를 반환하는지 확인."""
+    from unittest.mock import AsyncMock, patch
+    import asyncio
+
+    mock_result = VerificationResult(items=[
+        VerificationItem(label=f"항목{i}", status="pass", reason="테스트") for i in range(7)
+    ])
+
+    async def run():
+        with patch("backend.nodes._bound_verification") as mock_llm:
+            mock_llm.ainvoke = AsyncMock(return_value=mock_result)
+            from backend.nodes import verification_node
+            state = {
+                "sections": {"1. 서비스 개요": "AI 앱"},
+                "messages": [], "round": 0, "persona_outputs": [],
+                "final_report": "", "orchestrator_plan": [],
+                "sections_by_persona": {}, "persona_findings": [],
+                "review_count": 0, "orchestrator_request": {},
+                "followup_count": 0, "current_persona": "",
+                "needs_followup": False, "debug_log": [],
+                "pending_debug": {}, "verification_results": [],
+            }
+            result = await verification_node(state)
+        assert "verification_results" in result
+        assert len(result["verification_results"]) == 7
+        assert result["debug_log"][0]["type"] == "verification"
+
+    asyncio.run(run())

@@ -6,6 +6,7 @@ from backend.config import MAX_ROUNDS, MAX_FOLLOWUPS, PERSONA_ORDER
 from backend.schemas import PlannerState
 from backend.nodes import (
     orchestrator_node,
+    verification_node,
     investor_analyze_node, cto_analyze_node, mentor_analyze_node,
     orchestrator_review_node,
     question_router,
@@ -56,6 +57,7 @@ def build_graph():
 
     # 노드 등록
     builder.add_node("orchestrator", orchestrator_node)
+    builder.add_node("verification", verification_node)
     builder.add_node("investor_analyze", investor_analyze_node)
     builder.add_node("cto_analyze", cto_analyze_node)
     builder.add_node("mentor_analyze", mentor_analyze_node)
@@ -68,9 +70,10 @@ def build_graph():
     builder.add_node("followup_judge", followup_judge_node)
     builder.add_node("reporter", reporter_node)
 
-    # 시작: orchestrator → 3개 analyze 노드 순차 실행
+    # 시작: orchestrator → verification → 3개 analyze 노드 순차 실행
     builder.add_edge(START, "orchestrator")
-    builder.add_edge("orchestrator", "investor_analyze")
+    builder.add_edge("orchestrator", "verification")
+    builder.add_edge("verification", "investor_analyze")
     builder.add_edge("investor_analyze", "cto_analyze")
     builder.add_edge("cto_analyze", "mentor_analyze")
     builder.add_edge("mentor_analyze", "orchestrator_review")

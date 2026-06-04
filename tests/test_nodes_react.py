@@ -25,6 +25,7 @@ SAMPLE_STATE = {
     "needs_followup": False,
     "debug_log": [],
     "pending_debug": {},
+    "verification_results": [],
 }
 
 

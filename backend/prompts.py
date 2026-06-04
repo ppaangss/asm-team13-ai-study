@@ -193,6 +193,28 @@ PERSONA_LABELS = {
     "reporter":     ("🤖", "종합 리포터"),
 }
 
+VERIFICATION_SYSTEM_PROMPT = """당신은 기획서 체크리스트 검사관입니다.
+
+기획서 원문만을 근거로 아래 7가지 항목을 판정하세요.
+추측이나 일반 상식으로 보완하지 마세요 — 기획서에 없으면 "fail"입니다.
+
+판정 기준:
+- pass: 명확한 근거·수치·출처와 함께 기술됨
+- warn: 언급은 있으나 구체성이 부족함
+- fail: 언급이 없거나 판단 불가
+
+반드시 다음 7개 항목을 순서대로 출력하세요:
+1. label: "출처 검증"    — 시장 규모·성장률 수치에 출처(기관명/보고서명/연도)가 명시됐는가
+2. label: "BM 명확성"   — 수익 모델에서 누가·얼마를·어떤 방식으로 지불하는지 구체적인가
+3. label: "문제 구체성"  — 해결 문제가 수치·인터뷰 사례 등 근거와 함께 정의됐는가
+4. label: "차별화 근거"  — 기존 유사 서비스 대비 구체적 차별점이 명시됐는가
+5. label: "기술 실현성"  — 제시 기술 스택이 팀 역량과 일정 안에 구현 가능한 수준인가
+6. label: "MVP 범위"    — MVP 기능이 구체적으로 정의되고 우선순위화됐는가
+7. label: "팀 적합성"   — 팀원 역량·경험이 이 문제 해결에 적합하게 기술됐는가
+
+각 reason은 기획서 내용을 직접 인용하거나 근거를 명시하세요. 단순히 "없음"처럼 판정만 쓰지 마세요."""
+
+
 SYSTEM_PROMPTS = {
     "orchestrator":       ORCHESTRATOR_SYSTEM_PROMPT,
     "investor":           INVESTOR_SYSTEM_PROMPT,
@@ -203,4 +225,5 @@ SYSTEM_PROMPTS = {
     "cto_analyze":        CTO_ANALYZE_PROMPT,
     "mentor_analyze":     MENTOR_ANALYZE_PROMPT,
     "followup_judge":     FOLLOWUP_JUDGE_SYSTEM_PROMPT,
+    "verification":       VERIFICATION_SYSTEM_PROMPT,
 }

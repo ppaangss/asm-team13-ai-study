@@ -17,6 +17,17 @@ class OrchestratorPlan(BaseModel):
     # {"investor": ["5. 수익 모델", "6. 시장 분석"], "cto": [...], "mentor": [...]}
 
 
+# ── 검증 에이전트 스키마 ──────────────────────────────────────
+class VerificationItem(BaseModel):
+    label: str
+    status: Literal["pass", "warn", "fail"]
+    reason: str
+
+
+class VerificationResult(BaseModel):
+    items: list[VerificationItem]
+
+
 # ── 꼬리 질문 판단 스키마 ──────────────────────────────────────
 class FollowupJudge(BaseModel):
     needs_followup: bool
@@ -57,6 +68,8 @@ class PlannerState(TypedDict):
     # 디버그 로그 (개발자 모드용)
     debug_log: Annotated[list, operator.add]
     pending_debug: dict  # followup_judge 판정 후 꼬리질문 생성 전까지 임시 보관
+    # 검증 에이전트 결과
+    verification_results: list[dict]
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────

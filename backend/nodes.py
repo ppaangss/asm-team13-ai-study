@@ -5,7 +5,7 @@ from langgraph.types import interrupt
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve, retrieve_persona
-from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge
+from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge, VerificationResult
 from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
@@ -13,6 +13,7 @@ _bound_llm = llm.bind_tools([web_search])
 _bound_orchestrator = llm.with_structured_output(OrchestratorPlan)
 _bound_review = llm.with_structured_output(OrchestratorReview)
 _bound_followup = llm.with_structured_output(FollowupJudge)
+_bound_verification = llm.with_structured_output(VerificationResult)
 
 
 def _trim_to_question(text: str) -> str:
@@ -73,6 +74,25 @@ async def orchestrator_node(state: PlannerState) -> dict:
             for p in ["investor", "cto", "mentor"]
         }
     return {"orchestrator_plan": rounds, "sections_by_persona": sections_by_persona}
+
+
+async def verification_node(state: PlannerState) -> dict:
+    """기획서 7개 항목 정적 검증. Q&A 시작 전 1회 실행."""
+    context = _format_context(state)
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPTS["verification"]),
+        HumanMessage(content=context),
+    ]
+    try:
+        result: VerificationResult = await _bound_verification.ainvoke(messages)
+        items = [item.model_dump() for item in result.items]
+    except Exception:
+        items = []
+
+    return {
+        "verification_results": items,
+        "debug_log": [{"type": "verification", "items": items}],
+    }
 
 
 async def _run_analyze(persona: str, state: PlannerState) -> dict:

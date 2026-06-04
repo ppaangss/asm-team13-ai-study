@@ -207,6 +207,8 @@ if "debug_log" not in st.session_state:
     st.session_state.debug_log = []
 if "debug_selected" not in st.session_state:
     st.session_state.debug_selected = None
+if "verification_results" not in st.session_state:
+    st.session_state.verification_results = []
 
 
 def render_upload_page():
@@ -323,11 +325,14 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
                 node = event.get("node", "")
                 token = event.get("token", "")
 
-                # 개발자 모드: debug 이벤트 수집
+                # 개발자 모드: debug 이벤트 수집 (verification 이벤트 분리)
                 if node == "dev":
                     debug_data = event.get("debug")
                     if debug_data:
-                        st.session_state.debug_log.append(debug_data)
+                        if debug_data.get("type") == "verification":
+                            st.session_state.verification_results = debug_data.get("items", [])
+                        else:
+                            st.session_state.debug_log.append(debug_data)
                     continue
 
                 if not token:
@@ -365,6 +370,44 @@ def _stream_and_display(url: str, method: str, params: dict = None, body: dict =
             "content": full_response,
             "avatar": PERSONA_AVATAR.get(current_node, "🤖"),
         })
+
+
+def render_verification_panel():
+    """기획서 사전 체크리스트 패널."""
+    results = st.session_state.verification_results
+    if not results:
+        return
+
+    STATUS_ICON  = {"pass": "✅", "warn": "⚠️", "fail": "❌"}
+    STATUS_COLOR = {"pass": "#e8f5e9", "warn": "#fff8e1", "fail": "#fce4ec"}
+    STATUS_LABEL = {"pass": "충족", "warn": "부분", "fail": "미흡"}
+
+    pass_count = sum(1 for r in results if r.get("status") == "pass")
+    warn_count = sum(1 for r in results if r.get("status") == "warn")
+    fail_count = sum(1 for r in results if r.get("status") == "fail")
+
+    with st.expander(
+        f"📋 기획서 사전 체크리스트  ✅ {pass_count}  ⚠️ {warn_count}  ❌ {fail_count}",
+        expanded=True,
+    ):
+        for item in results:
+            status = item.get("status", "fail")
+            icon   = STATUS_ICON.get(status, "❓")
+            color  = STATUS_COLOR.get(status, "#f5f5f5")
+            badge  = STATUS_LABEL.get(status, "")
+            label  = item.get("label", "")
+            reason = item.get("reason", "")
+            st.markdown(
+                f'<div style="background:{color}; padding:10px 16px; border-radius:12px; '
+                f'margin-bottom:8px; border-left: 4px solid {"#4caf50" if status=="pass" else "#ffc107" if status=="warn" else "#f44336"};">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                f'<b style="font-size:15px;">{icon} {label}</b>'
+                f'<span style="font-size:12px; color:#5b616e; font-weight:600;">{badge}</span>'
+                f'</div>'
+                f'<div style="color:#5b616e; font-size:13px; margin-top:4px;">{reason}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 
 def render_debug_panel():
@@ -445,6 +488,9 @@ def render_chat_page():
 
     st.write("---")
 
+    # 검증 체크리스트 (있으면 대화 위에 표시)
+    render_verification_panel()
+
     # 대화 기록 렌더링
     for msg in st.session_state.messages:
         avatar = msg.get("avatar", "🧑‍💻" if msg["role"] == "user" else "🤖")
@@ -491,6 +537,7 @@ def render_chat_page():
             st.session_state.chat_started = False
             st.session_state.debug_log = []
             st.session_state.debug_selected = None
+            st.session_state.verification_results = []
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 

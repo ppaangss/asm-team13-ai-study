@@ -115,6 +115,7 @@ async def chat_start(req: ChatRequest):
         "needs_followup": False,
         "debug_log": [],
         "pending_debug": {},
+        "verification_results": [],
     }
 
     async def event_generator():
