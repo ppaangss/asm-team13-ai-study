@@ -49,7 +49,7 @@ TTFT (Time to First Token):
 - GPT-4o:           ~464ms     | —
 - Claude Haiku 4.5: 500~639ms  | 80~120 tokens/sec
 - Claude Sonnet 4.6:500~800ms  | ~53 tokens/sec
-- Gemini 2.5 Flash: ~620ms     | 225 tokens/sec
+- Gemini 2.5 Flash: ~620ms     | 146~173 tokens/sec
 - Claude Opus 4.8:  1,500~2,000ms | 45~66 tokens/sec
 - o3 (추론 모델):   2~150초    | — (체인오브소트 처리)
 - o4-mini:          1~30초     | — (경량 추론)
