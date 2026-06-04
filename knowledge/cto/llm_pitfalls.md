@@ -42,15 +42,19 @@ LLM은 강력하지만 모든 문제에 적합하지 않다. CTO는 LLM이 정�
 ## 실시간 응답 지연 현실
 
 ```
-모델별 평균 응답 시간 (500 토큰 생성 기준, 2024년 기준):
-- GPT-4o:        1~5초
-- GPT-4 Turbo:   3~10초
-- GPT-4:         5~15초
-- Claude 3.5 Sonnet: 2~6초
-- Claude Haiku:  0.5~2초
-- GPT-4o-mini:   0.5~2초
+모델별 응답 특성 (2026년 6월 기준, 네트워크·서버 부하에 따라 변동):
 
-※ 네트워크 상태, OpenAI 서버 부하에 따라 2~3배 변동 가능
+TTFT (Time to First Token):
+- GPT-4o-mini:      200~400ms  | 80~100 tokens/sec
+- GPT-4o:           ~464ms     | —
+- Claude Haiku 4.5: 500~639ms  | 80~120 tokens/sec
+- Claude Sonnet 4.6:500~800ms  | ~53 tokens/sec
+- Gemini 2.5 Flash: ~620ms     | 225 tokens/sec
+- Claude Opus 4.8:  1,500~2,000ms | 45~66 tokens/sec
+- o3 (추론 모델):   2~150초    | — (체인오브소트 처리)
+- o4-mini:          1~30초     | — (경량 추론)
+
+※ 추론 모델(o3, o4-mini)은 답변 생성 전 내부 사고 과정으로 TTFT가 매우 길어 실시간 채팅 UX에 부적합
 ```
 
 ### Streaming 대응 필수 여부
@@ -87,7 +91,7 @@ for chunk in client.chat.completions.create(
 
 ## 흔한 레드플래그
 
-- **"모든 기능에 GPT-4"**: GPT-4o-mini 대비 5~10배 비용. 간단한 분류·요약에 GPT-4를 쓰는 것은 비용 낭비
+- **"모든 기능에 Claude Opus 4.8"**: Haiku 4.5 대비 5배 비용. 간단한 분류·요약에 최고가 모델을 쓰는 것은 비용 낭비
 - **폴백(Fallback) 없음**: LLM API가 5xx 오류를 반환할 때 서비스 전체가 다운되는 구조
 - **환각 오류를 무시**: "가끔 틀리는 건 어쩔 수 없어요"라는 답변. 특히 의료·법률·금융 도메인에서 치명적
 - **지연 과소평가**: "AI가 바로바로 답해줍니다"라고 하면서 GPT-4 응답 시간 고려 없음
