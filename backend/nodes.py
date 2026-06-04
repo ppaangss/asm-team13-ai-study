@@ -5,7 +5,7 @@ from langgraph.types import interrupt
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve, retrieve_persona
-from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge, VerificationResult
+from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge, VerificationResult, FinalReport
 from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
@@ -14,6 +14,7 @@ _bound_orchestrator = llm.with_structured_output(OrchestratorPlan)
 _bound_review = llm.with_structured_output(OrchestratorReview)
 _bound_followup = llm.with_structured_output(FollowupJudge)
 _bound_verification = llm.with_structured_output(VerificationResult)
+_bound_reporter = llm.with_structured_output(FinalReport)
 
 
 def _trim_to_question(text: str) -> str:
@@ -379,7 +380,7 @@ async def followup_judge_node(state: PlannerState) -> dict:
 
 
 async def reporter_node(state: PlannerState) -> dict:
-    """모든 Q&A를 바탕으로 종합 리포트 생성. llm.astream()으로 스트리밍."""
+    """모든 Q&A를 바탕으로 구조화된 종합 리포트 생성. debug_log로 프론트에 전달."""
     context = _format_context(state)
     history = _format_history(state)
 
@@ -388,12 +389,26 @@ async def reporter_node(state: PlannerState) -> dict:
         HumanMessage(content=f"{context}\n\n{history}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
     ]
 
-    full_content = ""
-    async for chunk in llm.astream(messages):
-        if chunk.content:
-            full_content += chunk.content
+    try:
+        result: FinalReport = await _bound_reporter.ainvoke(messages)
+        report_dict = {
+            "type": "report",
+            "summary": result.summary,
+            "overall_score": result.overall_score,
+            "weaknesses": [w.model_dump() for w in result.weaknesses],
+            "closing": result.closing,
+        }
+    except Exception:
+        report_dict = {
+            "type": "report",
+            "summary": "리포트 생성 중 오류가 발생했습니다.",
+            "overall_score": 0,
+            "weaknesses": [],
+            "closing": "",
+        }
 
     return {
-        "messages": [{"role": "assistant", "name": "reporter", "content": full_content}],
-        "final_report": full_content,
+        "messages": [{"role": "assistant", "name": "reporter", "content": report_dict["summary"]}],
+        "final_report": report_dict["summary"],
+        "debug_log": [report_dict],
     }

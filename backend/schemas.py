@@ -91,6 +91,16 @@ class ChatEvent(BaseModel):
     debug: dict | None = None  # 개발자 모드용 디버그 페이로드
 
 
+class WeaknessItem(BaseModel):
+    section: str        # 섹션명
+    issue: str          # 핵심 허점
+    risk: Literal["상", "중", "하"]  # 위험도
+    risk_score: int     # 위험 점수 0~100 (높을수록 위험)
+    suggestion: str     # 보완 제안
+
+
 class FinalReport(BaseModel):
-    summary: str
-    weaknesses: list[dict[str, Any]]
+    summary: str                        # 전반적 평가 (2~3문장)
+    overall_score: int                  # 종합 완성도 점수 0~100 (높을수록 좋음)
+    weaknesses: list[WeaknessItem]      # 섹션별 허점 목록
+    closing: str                        # 마무리 한마디

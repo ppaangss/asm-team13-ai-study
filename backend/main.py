@@ -53,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PERSONA_NODES = {"investor", "cto", "mentor", "reporter"}
+PERSONA_NODES = {"investor", "cto", "mentor"}
 QUESTION_NODES = {"investor", "cto", "mentor"}
 
 # 업로드된 기획서 섹션을 thread_id 기준으로 서버 메모리에 보관
@@ -185,17 +185,17 @@ async def chat(req: ChatRequest):
                         if '?' in content:
                             content = content[:content.find('?') + 1]
                             q_done.add(node)
-                    is_reporter = node == "reporter"
-                    event = ChatEvent(token=content, node=node, done=False, is_final=is_reporter)
+                    event = ChatEvent(token=content, node=node, done=False)
                     yield f"data: {event.model_dump_json()}\n\n"
-                    if is_reporter:
-                        is_final = True
                 elif stream_type == "updates":
                     for node_output in data.values():
                         if not isinstance(node_output, dict):
                             continue
                         for entry in node_output.get("debug_log", []):
-                            debug_event = ChatEvent(token="", node="dev", done=False, debug=entry)
+                            is_report = entry.get("type") == "report"
+                            if is_report:
+                                is_final = True
+                            debug_event = ChatEvent(token="", node="dev", done=False, debug=entry, is_final=is_report)
                             yield f"data: {debug_event.model_dump_json()}\n\n"
         except Exception:
             import traceback; traceback.print_exc()

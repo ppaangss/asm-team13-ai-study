@@ -27,13 +27,21 @@ def test_chat_event_done():
     assert event.done is True
 
 def test_final_report_risk_levels():
+    from backend.schemas import WeaknessItem
+    weakness = WeaknessItem(
+        section="기술스택", issue="LLM 필요성 불분명",
+        risk="상", risk_score=75, suggestion="Use case 재정의 필요"
+    )
     report = FinalReport(
         summary="전반적으로 양호",
-        weaknesses=[
-            {"section": "기술스택", "issue": "LLM 필요성 불분명", "risk": "상", "suggestion": "Use case 재정의 필요"}
-        ]
+        overall_score=62,
+        weaknesses=[weakness],
+        closing="BM 구체화에 집중하세요.",
     )
-    assert report.weaknesses[0]["risk"] == "상"
+    assert report.weaknesses[0].risk == "상"
+    assert report.weaknesses[0].risk_score == 75
+    assert report.overall_score == 62
+    assert report.closing != ""
 
 
 def test_orchestrator_round_valid():
