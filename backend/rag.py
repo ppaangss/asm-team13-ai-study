@@ -19,11 +19,28 @@ def _get_embedder_query():
     return UpstageEmbeddings(model="solar-embedding-1-large", api_key=UPSTAGE_API_KEY)
 
 
+# ── [추가] Upstage Reranker 로딩 함수 ──────────────────────────────────────
+def _get_reranker():
+    from langchain_upstage import UpstageRerank
+    return UpstageRerank(model="solar-reranking-1-lite", api_key=UPSTAGE_API_KEY)
+
+
+# ── [추가] 대안 1: 하이브리드 청킹을 위한 TextSplitter 세팅 ──────────────────────
+def _get_text_splitter():
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    # 섹션 내부가 2000자 제한을 넘겨 누락되는 것을 막기 위해 800자 단위로 자르고, 200자 오버랩 설정
+    return RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=200,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""]
+    )
+
+
 _persistent_client: chromadb.PersistentClient | None = None
 
 
 def get_collection(db_path: str | None = None) -> chromadb.Collection:
-    """ChromaDB 컬렉션 반환. db_path 미지정 시 config의 CHROMA_DB_PATH 사용."""
     global _persistent_client
     path = db_path or CHROMA_DB_PATH
     if db_path is None:
@@ -39,7 +56,6 @@ def get_collection(db_path: str | None = None) -> chromadb.Collection:
 
 
 def build_index(collection: chromadb.Collection | None = None) -> None:
-    """data/examples/ TXT 파일을 섹션 단위로 청킹해 ChromaDB에 저장. 중복 없이 멱등 실행."""
     if collection is None:
         collection = get_collection()
 
@@ -47,21 +63,36 @@ def build_index(collection: chromadb.Collection | None = None) -> None:
     if not examples_path.exists():
         return
 
+    # [수정] 대안 1 하이브리드 청커 로드
+    splitter = _get_text_splitter()
     texts, ids, metadatas = [], [], []
+    
     for file in sorted(examples_path.glob("*")):
         if file.suffix.lower() not in SUPPORTED_EXTENSIONS:
             continue
         raw = read_file_text(file)
         sections = parse_sections(raw)
+        
         for section_title, section_content in sections.items():
-            doc_id = f"{file.stem}::{section_title}"
-            # 이미 인덱싱된 문서는 건너뜀 (멱등성 보장)
-            if collection.get(ids=[doc_id])["ids"]:
-                continue
-            chunk = f"[{section_title}]\n{section_content}"
-            texts.append(chunk)
-            ids.append(doc_id)
-            metadatas.append({"source": file.stem, "section": section_title})
+            full_section_text = f"[{section_title}]\n{section_content}"
+            
+            # [수정] 구조 분할 후 2차적으로 글자 수 기준 슬라이싱 실행
+            chunks = splitter.split_text(full_section_text)
+            
+            for idx, chunk in enumerate(chunks):
+                # ID 중복을 막기 위해 chunk index를 접미사로 결합
+                doc_id = f"{file.stem}::{section_title}::chunk_{idx}"
+                
+                if collection.get(ids=[doc_id])["ids"]:
+                    continue
+                
+                texts.append(chunk)
+                ids.append(doc_id)
+                metadatas.append({
+                    "source": file.stem, 
+                    "section": section_title,
+                    "chunk_index": idx
+                })
 
     if not texts:
         return
@@ -71,12 +102,12 @@ def build_index(collection: chromadb.Collection | None = None) -> None:
     collection.add(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
 
 
+# ── [개조] 일반 RAG Retrieve (Reranker 적용) ──────────────────────────────────
 def retrieve(
     query: str,
     top_k: int | None = None,
     collection: chromadb.Collection | None = None,
 ) -> str:
-    """쿼리와 유사한 예시 섹션 top_k개를 레이블 포함 문자열로 반환. 컬렉션이 비어 있으면 ''."""
     if collection is None:
         collection = get_collection()
     if collection.count() == 0:
@@ -87,9 +118,10 @@ def retrieve(
     query_vec = embedder.embed_query(query)
 
     try:
+        # 1차 검색: Reranker를 태우기 위해 넉넉하게 10개(혹은 전체 개수만큼) 추출
         results = collection.query(
             query_embeddings=[query_vec],
-            n_results=min(k, collection.count()),
+            n_results=min(10, collection.count()),
         )
     except Exception:
         return ""
@@ -99,10 +131,28 @@ def retrieve(
     if not docs:
         return ""
 
+    # 2차 검색 (Reranking): Upstage Reranker를 사용하여 쿼리와의 문맥 연관도 재정렬
+    try:
+        from langchain_core.documents import Document
+        reranker = _get_reranker()
+        
+        # LangChain Reranker 포맷에 맞게 변환
+        langchain_docs = [
+            Document(page_content=doc, metadata=meta) for doc, meta in zip(docs, metas)
+        ]
+        # 점수가 높은 순으로 정렬되어 반환됨
+        reranked_results = reranker.rerank_documents(langchain_docs, query=query, top_n=k)
+        
+        final_docs = [r_doc.page_content for r_doc in reranked_results]
+        final_metas = [r_doc.metadata for r_doc in reranked_results]
+    except Exception:
+        # Reranker API 실패 시 기비용 아끼기 위해 1차 검색 결과 백업 사용
+        final_docs, final_metas = docs[:k], metas[:k]
+
     MAX_RAG_CHARS = 2000
     lines = ["=== 유사 사례 참조 ==="]
     total = 0
-    for doc, meta in zip(docs, metas):
+    for doc, meta in zip(final_docs, final_metas):
         if total + len(doc) > MAX_RAG_CHARS:
             break
         lines.append(f"\n[출처: {meta['source']} — {meta['section']}]")
@@ -120,7 +170,6 @@ def get_persona_collection(
     persona: str,
     db_path: str | None = None,
 ) -> chromadb.Collection:
-    """페르소나별 ChromaDB 컬렉션 반환. 단일 클라이언트로 3개 컬렉션 공유."""
     global _persona_client
     path = db_path or PERSONA_CHROMA_DB_PATH
     if db_path is None:
@@ -139,7 +188,6 @@ def build_persona_index(
     persona: str,
     collection: chromadb.Collection | None = None,
 ) -> None:
-    """knowledge/{persona}/ 마크다운 문서를 섹션 단위로 청킹해 ChromaDB에 저장."""
     if collection is None:
         collection = get_persona_collection(persona)
 
@@ -147,38 +195,50 @@ def build_persona_index(
     if not knowledge_path.exists():
         return
 
-    texts, ids, metadatas = [], [], []
+    # [수정] 대안 1 하이브리드 청커 로드
+    splitter = _get_text_splitter()
+
     for file in sorted(knowledge_path.glob("*.md")):
         raw = file.read_text(encoding="utf-8")
         sections = parse_markdown_sections(raw)
 
-        # 파일의 스테일 청크를 삭제하고 재인덱싱
         existing = collection.get(where={"source": file.stem})
         if existing["ids"]:
             collection.delete(ids=existing["ids"])
 
+        texts, ids, metadatas = [], [], []
         for section_title, section_content in sections.items():
-            doc_id = f"{file.stem}::{section_title}"
-            chunk = f"[{section_title}]\n{section_content}"
-            texts.append(chunk)
-            ids.append(doc_id)
-            metadatas.append({"source": file.stem, "section": section_title, "persona": persona})
+            full_section_text = f"[{section_title}]\n{section_content}"
+            
+            # [수정] 구조 분할 후 2차적으로 글자 수 기준 슬라이싱 실행
+            chunks = splitter.split_text(full_section_text)
+            
+            for idx, chunk in enumerate(chunks):
+                doc_id = f"{file.stem}::{section_title}::chunk_{idx}"
+                texts.append(chunk)
+                ids.append(doc_id)
+                metadatas.append({
+                    "source": file.stem, 
+                    "section": section_title, 
+                    "persona": persona,
+                    "chunk_index": idx
+                })
 
-    if not texts:
-        return
+        if not texts:
+            continue
 
-    embedder = _get_embedder_passage()
-    vectors = embedder.embed_documents(texts)
-    collection.add(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
+        embedder = _get_embedder_passage()
+        vectors = embedder.embed_documents(texts)
+        collection.add(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
 
 
+# ── [개조] 페르소나 RAG Retrieve (Reranker 적용) ──────────────────────────────
 def retrieve_persona(
     persona: str,
     query: str,
     top_k: int | None = None,
     collection: chromadb.Collection | None = None,
 ) -> str:
-    """페르소나 전문 문서에서 쿼리와 유사한 섹션 top_k개를 반환. 비어 있으면 ''."""
     if collection is None:
         collection = get_persona_collection(persona)
     if collection.count() == 0:
@@ -189,9 +249,10 @@ def retrieve_persona(
     query_vec = embedder.embed_query(query)
 
     try:
+        # 1차 검색: 넉넉하게 10개 추출
         results = collection.query(
             query_embeddings=[query_vec],
-            n_results=min(k, collection.count()),
+            n_results=min(10, collection.count()),
         )
     except Exception:
         return ""
@@ -201,10 +262,25 @@ def retrieve_persona(
     if not docs:
         return ""
 
+    # 2차 검색 (Reranking)
+    try:
+        from langchain_core.documents import Document
+        reranker = _get_reranker()
+        
+        langchain_docs = [
+            Document(page_content=doc, metadata=meta) for doc, meta in zip(docs, metas)
+        ]
+        reranked_results = reranker.rerank_documents(langchain_docs, query=query, top_n=k)
+        
+        final_docs = [r_doc.page_content for r_doc in reranked_results]
+        final_metas = [r_doc.metadata for r_doc in reranked_results]
+    except Exception:
+        final_docs, final_metas = docs[:k], metas[:k]
+
     MAX_PERSONA_RAG_CHARS = 2000
     lines = ["=== 전문가 참고 자료 ==="]
     total = 0
-    for doc, meta in zip(docs, metas):
+    for doc, meta in zip(final_docs, final_metas):
         if total + len(doc) > MAX_PERSONA_RAG_CHARS:
             break
         lines.append(f"\n[{meta['source']} — {meta['section']}]")
