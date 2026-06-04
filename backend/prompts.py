@@ -209,15 +209,44 @@ VERIFICATION_SYSTEM_PROMPT = """당신은 기획서 체크리스트 검사관입
 각 reason은 기획서 내용을 직접 인용하거나 근거를 명시하세요. 단순히 "없음"처럼 판정만 쓰지 마세요."""
 
 
+CLAIM_EXTRACTION_PROMPT = """당신은 기획서에서 웹 검색으로 검증 가능한 수치·통계 주장을 추출하는 분석가입니다.
+
+다음 유형의 주장만 추출하세요 (최대 4개):
+- 시장 규모·TAM 수치 (예: "국내 AI 시장 3조원", "글로벌 TAM $5B")
+- 성장률·CAGR (예: "연평균 성장률 25%", "YoY 30% 성장")
+- 사용자·고객 통계 (예: "국내 당뇨 환자 600만명", "스마트폰 보유율 98%")
+- 경쟁사·시장 현황 (예: "국내 유사 서비스 없음", "경쟁사 A 시장점유율 40%")
+
+추출 제외 항목:
+- 미래 목표 수치 (예: "3년차 ARR 30억 목표", "MAU 10만 달성 예정")
+- 팀 역량 서술 (예: "5년 경력", "논문 3편")
+- 추상적·정성적 표현 (예: "빠른 성장", "높은 수요")
+
+주장은 기획서 원문 그대로 작성하세요. 검증 불가능한 주장이 없으면 빈 목록을 반환하세요."""
+
+
+CLAIM_VERIFICATION_PROMPT = """당신은 수치 주장을 웹 검색 결과와 대조해 검증하는 팩트체커입니다.
+
+각 주장에 대해 status를 판정하세요:
+- confirmed: 검색 결과가 해당 수치를 직접 뒷받침하거나 유사한 수치를 제시
+- contradicted: 검색 결과가 명백히 다른 수치를 제시하거나 주장을 반박
+- unconfirmed: 검색 결과가 없거나 관련 정보가 불충분해 판단 불가
+
+reason에는 판단 근거를 구체적으로 작성하세요 (검색 결과의 수치 또는 "관련 자료 없음").
+source에는 검색 결과에서 확인된 출처 제목 또는 "검색 결과 없음"을 작성하세요."""
+
+
 SYSTEM_PROMPTS = {
     "orchestrator":       ORCHESTRATOR_SYSTEM_PROMPT,
     "investor":           INVESTOR_SYSTEM_PROMPT,
     "cto":                CTO_SYSTEM_PROMPT,
     "mentor":             MENTOR_SYSTEM_PROMPT,
     "reporter":           REPORTER_SYSTEM_PROMPT,
-    "investor_analyze":   INVESTOR_ANALYZE_PROMPT,
-    "cto_analyze":        CTO_ANALYZE_PROMPT,
-    "mentor_analyze":     MENTOR_ANALYZE_PROMPT,
-    "followup_judge":     FOLLOWUP_JUDGE_SYSTEM_PROMPT,
-    "verification":       VERIFICATION_SYSTEM_PROMPT,
+    "investor_analyze":      INVESTOR_ANALYZE_PROMPT,
+    "cto_analyze":           CTO_ANALYZE_PROMPT,
+    "mentor_analyze":        MENTOR_ANALYZE_PROMPT,
+    "followup_judge":        FOLLOWUP_JUDGE_SYSTEM_PROMPT,
+    "verification":          VERIFICATION_SYSTEM_PROMPT,
+    "claim_extraction":      CLAIM_EXTRACTION_PROMPT,
+    "claim_verification":    CLAIM_VERIFICATION_PROMPT,
 }

@@ -5,7 +5,7 @@ from langgraph.types import interrupt
 from backend.config import MODEL_NAME
 from backend.prompts import SYSTEM_PROMPTS
 from backend.rag import retrieve, retrieve_persona
-from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge, VerificationResult, FinalReport
+from backend.schemas import PlannerState, OrchestratorPlan, OrchestratorReview, FollowupJudge, VerificationResult, FinalReport, DataClaimList, DataVerificationResult
 from backend.tools import web_search
 
 llm = init_chat_model(model=MODEL_NAME, temperature=0.7)
@@ -15,6 +15,8 @@ _bound_review = llm.with_structured_output(OrchestratorReview)
 _bound_followup = llm.with_structured_output(FollowupJudge)
 _bound_verification = llm.with_structured_output(VerificationResult)
 _bound_reporter = llm.with_structured_output(FinalReport)
+_bound_claim_extractor = llm.with_structured_output(DataClaimList)
+_bound_claim_verifier = llm.with_structured_output(DataVerificationResult)
 
 
 def _trim_to_question(text: str) -> str:
@@ -94,6 +96,46 @@ async def verification_node(state: PlannerState) -> dict:
         "verification_results": items,
         "debug_log": [{"type": "verification", "items": items}],
     }
+
+
+async def data_verification_node(state: PlannerState) -> dict:
+    """기획서 수치 주장을 웹 검색으로 검증. verification 직후 1회 실행."""
+    import asyncio
+    context = _format_context(state)
+
+    # 1단계: 검증 가능한 수치 주장 추출 (최대 4개)
+    try:
+        claim_result: DataClaimList = await _bound_claim_extractor.ainvoke([
+            SystemMessage(content=SYSTEM_PROMPTS["claim_extraction"]),
+            HumanMessage(content=context),
+        ])
+        claims = claim_result.claims[:4]
+    except Exception:
+        return {"debug_log": [{"type": "data_verification", "items": []}]}
+
+    if not claims:
+        return {"debug_log": [{"type": "data_verification", "items": []}]}
+
+    # 2단계: 주장별 웹 검색 병렬 실행
+    search_results = await asyncio.gather(*[
+        asyncio.to_thread(web_search.invoke, claim) for claim in claims
+    ])
+
+    # 3단계: 검색 결과 대조 검증
+    search_context = "\n\n".join(
+        f"[주장 {i+1}]: {claim}\n[검색 결과]: {result}"
+        for i, (claim, result) in enumerate(zip(claims, search_results))
+    )
+    try:
+        verify_result: DataVerificationResult = await _bound_claim_verifier.ainvoke([
+            SystemMessage(content=SYSTEM_PROMPTS["claim_verification"]),
+            HumanMessage(content=search_context),
+        ])
+        items = [item.model_dump() for item in verify_result.items]
+    except Exception:
+        items = []
+
+    return {"debug_log": [{"type": "data_verification", "items": items}]}
 
 
 async def _run_analyze(persona: str, state: PlannerState) -> dict:

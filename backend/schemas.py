@@ -91,6 +91,22 @@ class ChatEvent(BaseModel):
     debug: dict | None = None  # 개발자 모드용 디버그 페이로드
 
 
+# ── 수치 데이터 검증 스키마 ───────────────────────────────────
+class DataClaimList(BaseModel):
+    claims: list[str]   # 검증 대상 수치 주장 목록 (최대 4개)
+
+
+class DataVerificationItem(BaseModel):
+    claim: str                                                          # 원문 수치 주장
+    status: Literal["confirmed", "unconfirmed", "contradicted"]        # 검증 결과
+    reason: str                                                         # 판단 근거
+    source: str                                                         # 검색 출처
+
+
+class DataVerificationResult(BaseModel):
+    items: list[DataVerificationItem]
+
+
 class WeaknessItem(BaseModel):
     section: str        # 섹션명
     issue: str          # 핵심 허점
