@@ -318,24 +318,28 @@ def test_followup_judge_node_increments_round_when_sufficient():
     asyncio.run(run())
 
 
-def test_followup_judge_node_stops_on_short_answer_after_first_followup():
-    """followup_count >= 1 이고 답변이 15자 이하면 LLM 없이 바로 False 반환하는지 확인."""
+def test_followup_judge_node_evaluates_short_answer_with_llm():
+    """짧은 답변("네")도 LLM으로 맥락 평가하는지 확인. 이전의 15자 가드 제거됨."""
+    from backend.schemas import FollowupJudge
+
     state = {
         **SAMPLE_STATE,
         "round": 0,
         "messages": [
-            {"role": "assistant", "name": "cto", "content": "5일 안에 구현 가능한가요?"},
-            {"role": "user", "content": "네"},  # 15자 이하 짧은 답변
+            {"role": "assistant", "name": "cto", "content": "구현 가능성을 확인하셨나요?"},
+            {"role": "user", "content": "네"},  # 짧지만 맥락상 유효한 답변
         ],
-        "followup_count": 1,  # 이미 꼬리 질문 1회 진행됨
+        "followup_count": 1,
     }
+    # "네"를 충분한 답변으로 판단 (score=80 → threshold=15 초과 → 다음 라운드)
+    mock_judge = FollowupJudge(needs_followup=False, score=80, reason="질문에 대한 긍정 답변으로 충분")
 
     async def run():
         with patch("backend.nodes._bound_followup") as mock_llm:
-            mock_llm.ainvoke = AsyncMock()  # 호출되면 안 됨
+            mock_llm.ainvoke = AsyncMock(return_value=mock_judge)
             from backend.nodes import followup_judge_node
             result = await followup_judge_node(state)
-        mock_llm.ainvoke.assert_not_called()  # LLM 미호출 확인
+        mock_llm.ainvoke.assert_called_once()  # LLM 호출 확인
         assert result["needs_followup"] is False
         assert result["round"] == 1
         assert result["followup_count"] == 0

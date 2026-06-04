@@ -430,26 +430,38 @@ def render_debug_panel():
             st.rerun()
 
         entry = log[selected]
+        entry = log[selected]
         raw_score = entry.get("score")
         threshold = entry.get("threshold", "?")
         needs     = entry.get("needs_followup", False)
         count     = entry.get("followup_count", 0)
+        reason    = entry.get("reason", "-")
         result_label = "꼬리질문" if needs else "다음 라운드"
 
-        score_display = f"{raw_score} / 100" if isinstance(raw_score, (int, float)) else "측정 불가"
-        score_pct     = max(0, min(100, raw_score)) / 100 if isinstance(raw_score, (int, float)) else 0
+        is_error = raw_score is None and "오류" in reason
+        if isinstance(raw_score, (int, float)):
+            score_display = f"{raw_score} / 100"
+            score_pct     = max(0, min(100, raw_score)) / 100
+        elif is_error:
+            score_display = "오류 발생"
+            score_pct     = 0
+        else:
+            score_display = "측정 불가"
+            score_pct     = 0
 
         st.markdown(f"**#{selected + 1}  {count}회차 판단**")
         st.divider()
 
-        # 점수 막대바
         st.progress(score_pct, text=f"답변 커버율: {score_display}")
 
         col_a, col_b = st.columns(2)
         col_a.metric("답변 커버율", score_display)
         col_b.metric("판단 임계값", f"< {threshold}")
         st.markdown(f"**결과 :** {result_label}")
-        st.caption(entry.get("reason", "-"))
+        if is_error:
+            st.error(reason)
+        else:
+            st.caption(reason)
 
         st.divider()
         st.markdown("**판단 대상 질문** (이 질문에 대한 답변이 평가됨)")
@@ -467,10 +479,16 @@ def render_debug_panel():
     else:
         for i, entry in enumerate(log):
             raw_score = entry.get("score")
-            needs = entry.get("needs_followup", False)
-            count = entry.get("followup_count", 0)
-            tag = "[꼬리질문]" if needs else "[다음 라운드]"
-            score_label = f"{raw_score}/100" if isinstance(raw_score, (int, float)) else "측정불가"
+            needs  = entry.get("needs_followup", False)
+            count  = entry.get("followup_count", 0)
+            reason = entry.get("reason", "")
+            tag    = "[꼬리질문]" if needs else "[다음 라운드]"
+            if isinstance(raw_score, (int, float)):
+                score_label = f"{raw_score}/100"
+            elif "오류" in reason:
+                score_label = "오류발생"
+            else:
+                score_label = "측정불가"
 
             followup_tag = "  [꼬리질문 생성됨]" if entry.get("followup_question") else ""
             btn_label = f"#{i + 1}  {count}회차  {score_label}  {tag}{followup_tag}"

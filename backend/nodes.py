@@ -327,26 +327,6 @@ async def followup_judge_node(state: PlannerState) -> dict:
     followup_count = state.get("followup_count", 0)
     threshold = _FOLLOWUP_THRESHOLDS.get(followup_count, 5)
 
-    # 가드 1: 이미 꼬리 질문을 했는데 답변이 15자 이하("네", "알겠습니다" 등)이면 더 물어봐도 의미 없음
-    if followup_count >= 1 and last_a:
-        answer_text = last_a.get("content", "").strip()
-        if len(answer_text) <= 15:
-            debug_entry = {
-                "followup_count": followup_count,
-                "score": None,
-                "threshold": threshold,
-                "needs_followup": False,
-                "reason": f"짧은 답변 감지 ({len(answer_text)}자 ≤ 15자) — 측정 생략",
-                "question": last_q["content"] if last_q else "",
-                "answer": answer_text,
-            }
-            return {
-                "needs_followup": False,
-                "round": state["round"] + 1,
-                "followup_count": 0,
-                "debug_log": [debug_entry],
-            }
-
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["followup_judge"]),
         HumanMessage(
@@ -368,7 +348,7 @@ async def followup_judge_node(state: PlannerState) -> dict:
     except Exception:
         needs = False
         score = None
-        reason = "LLM 호출 실패"
+        reason = "예외 처리 발생 — LLM 호출 오류"
 
     base_entry = {
         "followup_count": followup_count,
