@@ -154,7 +154,7 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 | 리랭킹 | Flashrank `ms-marco-MiniLM-L-12-v2` (로컬) |
 | 웹 검색 | Tavily |
 | 백엔드 | FastAPI + `asyncio` |
-| 프론트엔드 | Streamlit |
+| 프론트엔드 | Vite + React + TypeScript + Framer Motion |
 | 트레이싱 | LangSmith |
 
 ---
@@ -175,7 +175,9 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 │   ├── schemas.py       # Pydantic 스키마 + LangGraph State
 │   └── tools.py         # 웹 검색 도구 (Tavily)
 ├── frontend/
-│   └── app.py           # Streamlit 앱
+│   ├── src/             # React UI
+│   ├── package.json     # Vite 프론트엔드 설정
+│   └── index.html       # React 앱 진입 HTML
 ├── knowledge/
 │   ├── investor/        # 투자자 전문 지식 (7개 문서, 56청크)
 │   ├── cto/             # CTO 전문 지식 (7개 문서, 49청크)
@@ -211,10 +213,13 @@ uvicorn backend.main:app --reload
 
 ### 4. 프론트엔드 실행
 ```bash
-streamlit run frontend/app.py
+cd frontend
+npm.cmd install
+npm.cmd run dev
 ```
 
-브라우저에서 `http://localhost:8501` 접속 후 기획서 파일을 업로드하면 심사가 시작됩니다.
+브라우저에서 `http://localhost:5173` 접속 후 기획서 파일을 업로드하면 심사가 시작됩니다.
+백엔드가 꺼져 있거나 API 키가 없으면 React 프론트엔드는 자동으로 데모 심사 모드로 전환됩니다.
 
 ---
 
