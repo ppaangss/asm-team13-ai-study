@@ -175,14 +175,19 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 │   ├── schemas.py       # Pydantic 스키마 + LangGraph State
 │   └── tools.py         # 웹 검색 도구 (Tavily)
 ├── frontend/
-│   ├── src/             # React UI
+│   ├── src/
+│   │   ├── App.tsx          # 앱 상태, SSE 스트리밍, 3-패널 UI
+│   │   ├── utils.ts         # parseSSEChunk / routeDebugEvent 유틸
+│   │   ├── utils.test.ts    # Vitest 단위 테스트 (11개)
+│   │   ├── styles.css       # CSS 디자인 토큰 및 반응형 레이아웃
+│   │   └── main.tsx         # React 진입점
 │   ├── package.json     # Vite 프론트엔드 설정
 │   └── index.html       # React 앱 진입 HTML
 ├── knowledge/
 │   ├── investor/        # 투자자 전문 지식 (7개 문서, 56청크)
 │   ├── cto/             # CTO 전문 지식 (7개 문서, 49청크)
 │   └── mentor/          # 멘토 전문 지식 (7개 문서, 55청크)
-├── tests/               # pytest 테스트 (69개)
+├── tests/               # pytest 테스트 (82개)
 ├── requirements.txt
 └── data/                # ChromaDB + 예시 기획서 (로컬 전용, .gitignore)
 ```
@@ -214,8 +219,8 @@ uvicorn backend.main:app --reload
 ### 4. 프론트엔드 실행
 ```bash
 cd frontend
-npm.cmd install
-npm.cmd run dev
+npm install
+npm run dev
 ```
 
 브라우저에서 `http://localhost:5173` 접속 후 기획서 파일을 업로드하면 심사가 시작됩니다.
@@ -225,11 +230,18 @@ npm.cmd run dev
 
 ## 테스트
 
+**백엔드 (pytest)**
 ```bash
 pytest tests/ -v
 ```
 
-69개 테스트 전원 통과 (API 키 불필요, 외부 서비스 Mock 처리).
+**프론트엔드 (Vitest)**
+```bash
+cd frontend
+npm test
+```
+
+82개 백엔드 + 11개 프론트엔드 = **93개 테스트** 전원 통과 (API 키 불필요, 외부 서비스 Mock 처리).
 
 ---
 

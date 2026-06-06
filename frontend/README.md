@@ -14,8 +14,8 @@ Vite + React + TypeScript 기반의 기획서 검증 에이전트 프론트엔�
 ## Run
 
 ```bash
-npm.cmd install
-npm.cmd run dev
+npm install
+npm run dev
 ```
 
 기본 개발 서버는 `http://localhost:5173`입니다.
@@ -37,10 +37,13 @@ frontend/
 ├── tsconfig.node.json
 ├── vite.config.ts
 └── src/
-    ├── App.tsx        # 앱 상태, API/SSE 처리, 모든 화면 컴포넌트
-    ├── main.tsx       # React entrypoint
-    ├── styles.css     # design.md 기반 스타일과 반응형 레이아웃
-    └── vite-env.d.ts  # Vite 타입 참조
+    ├── App.tsx          # 앱 상태, API/SSE 처리, 모든 화면 컴포넌트
+    ├── utils.ts         # parseSSEChunk / routeDebugEvent 순수 유틸
+    ├── utils.test.ts    # Vitest 단위 테스트 (11개)
+    ├── test-setup.ts    # @testing-library/jest-dom 초기화
+    ├── main.tsx         # React entrypoint
+    ├── styles.css       # design.md 기반 스타일과 반응형 레이아웃
+    └── vite-env.d.ts    # Vite 타입 참조
 ```
 
 현재는 단일 화면 앱이라 `App.tsx` 안에 컴포넌트를 모아두었습니다. 컴포넌트가 더 커지면 다음 기준으로 분리하는 것을 권장합니다.
@@ -308,9 +311,19 @@ Content-Type: application/json
 
 응답은 모두 `data: {...}\n\n` 스트리밍 형식입니다.
 
+## Testing
+
+```bash
+npm test          # 단발 실행
+npm run test:watch  # watch 모드
+```
+
+Vitest + jsdom 환경에서 실행됩니다. 현재 `utils.ts`의 `parseSSEChunk`와 `routeDebugEvent`에 대한 11개 테스트가 포함됩니다.
+
 ## Development Notes
 
 - 백엔드 이벤트 구조를 바꾸지 말고, UI 해석은 프론트에서 처리합니다.
+- SSE 파싱 및 이벤트 라우팅 로직은 `utils.ts`에 분리하여 테스트 가능하게 유지합니다.
 - 새 UI를 추가할 때는 먼저 `design.md`의 토큰과 컴포넌트 규칙을 확인합니다.
 - `backend/`는 UI 작업에서 수정하지 않습니다.
 - `dist/`, `node_modules/`, `*.tsbuildinfo`는 커밋하지 않습니다.
