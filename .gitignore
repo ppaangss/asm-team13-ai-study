@@ -13,8 +13,12 @@ __pycache__/
 venv/
 .env/
 ENV/
-# Streamlit
-/.streamlit/
+# Frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
 # IDE/editor
 .vscode/
 .idea/
