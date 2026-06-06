@@ -19,10 +19,16 @@ def _get_embedder_query():
     return UpstageEmbeddings(model="solar-embedding-1-large", api_key=UPSTAGE_API_KEY)
 
 
-# ── [추가] Upstage Reranker 로딩 함수 ──────────────────────────────────────
-def _get_reranker():
-    from langchain_upstage import UpstageRerank
-    return UpstageRerank(model="solar-reranking-1-lite", api_key=UPSTAGE_API_KEY)
+# ── FlashrankRerank (로컬 Reranker, API 키 불필요) ──────────────────────────
+def _flashrank_rerank(docs: list, metas: list, query: str, top_k: int) -> tuple:
+    from flashrank import Ranker, RerankRequest
+    ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir="/tmp/flashrank")
+    passages = [{"id": i, "text": doc, "meta": meta} for i, (doc, meta) in enumerate(zip(docs, metas))]
+    request = RerankRequest(query=query, passages=passages)
+    results = ranker.rerank(request)[:top_k]
+    reranked_docs  = [r["text"] for r in results]
+    reranked_metas = [r["meta"] for r in results]
+    return reranked_docs, reranked_metas
 
 
 # ── [추가] 대안 1: 하이브리드 청킹을 위한 TextSplitter 세팅 ──────────────────────
@@ -131,22 +137,10 @@ def retrieve(
     if not docs:
         return ""
 
-    # 2차 검색 (Reranking): Upstage Reranker를 사용하여 쿼리와의 문맥 연관도 재정렬
+    # 2차 검색 (Reranking): Upstage REST API로 문맥 연관도 재정렬
     try:
-        from langchain_core.documents import Document
-        reranker = _get_reranker()
-        
-        # LangChain Reranker 포맷에 맞게 변환
-        langchain_docs = [
-            Document(page_content=doc, metadata=meta) for doc, meta in zip(docs, metas)
-        ]
-        # 점수가 높은 순으로 정렬되어 반환됨
-        reranked_results = reranker.rerank_documents(langchain_docs, query=query, top_n=k)
-        
-        final_docs = [r_doc.page_content for r_doc in reranked_results]
-        final_metas = [r_doc.metadata for r_doc in reranked_results]
+        final_docs, final_metas = _flashrank_rerank(docs, metas, query, k)
     except Exception:
-        # Reranker API 실패 시 기비용 아끼기 위해 1차 검색 결과 백업 사용
         final_docs, final_metas = docs[:k], metas[:k]
 
     MAX_RAG_CHARS = 2000
@@ -262,18 +256,9 @@ def retrieve_persona(
     if not docs:
         return ""
 
-    # 2차 검색 (Reranking)
+    # 2차 검색 (Reranking): Upstage REST API로 문맥 연관도 재정렬
     try:
-        from langchain_core.documents import Document
-        reranker = _get_reranker()
-        
-        langchain_docs = [
-            Document(page_content=doc, metadata=meta) for doc, meta in zip(docs, metas)
-        ]
-        reranked_results = reranker.rerank_documents(langchain_docs, query=query, top_n=k)
-        
-        final_docs = [r_doc.page_content for r_doc in reranked_results]
-        final_metas = [r_doc.metadata for r_doc in reranked_results]
+        final_docs, final_metas = _flashrank_rerank(docs, metas, query, k)
     except Exception:
         final_docs, final_metas = docs[:k], metas[:k]
 
