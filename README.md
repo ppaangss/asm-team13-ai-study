@@ -79,14 +79,41 @@ START → orchestrator → verification → data_verification
 }
 ```
 
-### 7. 페르소나별 RAG
+### 7. Reranker 설계 결정
+
+#### Upstage Reranking API 미사용 이유
+`langchain-upstage 0.7.7` (현재 최신)에 `UpstageRerank` 클래스가 존재하지 않으며,
+Upstage REST API (`api.upstage.ai`) 에도 공개 Reranking 엔드포인트가 없음을 직접 확인했습니다.
+
+```
+# 시도한 모든 엔드포인트 — 전부 404
+POST https://api.upstage.ai/v1/reranking
+POST https://api.upstage.ai/v1/rerank
+POST https://api.upstage.ai/v1/solar/reranking
+POST https://api.upstage.ai/v1/solar/rerank
+```
+
+#### 대안 선택: Flashrank (`ms-marco-MiniLM-L-12-v2`)
+
+| 항목 | 내용 |
+|------|------|
+| 방식 | 로컬 Cross-Encoder 모델 (API 호출 없음) |
+| 모델 크기 | 22MB (첫 실행 시 자동 다운로드 후 캐시) |
+| API 키 | 불필요 |
+| 추가 비용 | 없음 |
+| 동작 방식 | ChromaDB 1차 검색 10개 → Flashrank 재정렬 → top_k=3 전달 |
+
+실제 동작 검증 결과 — investor, cto, mentor 세 페르소나 모두 ChromaDB 코사인 유사도 순서와
+Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 확인했습니다.
+
+### 8. 페르소나별 RAG
 **예시 기획서 RAG**
 - `data/examples/`에 저장된 기획서 예시를 오케스트레이터 분석에 활용
 - 11개 도메인: AI 교육·헬스케어·핀테크·법률·HR·이커머스·기업교육·고객서비스·부동산·물류SCM·스마트팜
 
 **페르소나 전문 지식 RAG**
 - `knowledge/{investor,cto,mentor}/` 의 21개 전문 문서, 160청크
-- `parse_markdown_sections()` → `##` 헤더 단위 청킹 → Upstage Reranker 재정렬
+- `parse_markdown_sections()` → `##` 헤더 단위 청킹 → Flashrank 재정렬
 
 | 페르소나 | 문서 수 | 청크 수 |
 |---------|---------|---------|
@@ -94,7 +121,7 @@ START → orchestrator → verification → data_verification
 | cto | 7 | 49 |
 | mentor | 7 | 55 |
 
-### 8. SSE 이벤트 스펙 (프론트엔드 연동)
+### 9. SSE 이벤트 스펙 (프론트엔드 연동)
 
 모든 이벤트 공통 구조:
 ```json
@@ -108,11 +135,11 @@ START → orchestrator → verification → data_verification
 | `followup_judge` | 각 답변 후 | `score, threshold, needs_followup, reason, followup_question?` |
 | `report` | 세션 종료 (`is_final: true`) | `summary, overall_score, weaknesses[], closing` |
 
-### 9. 파일 업로드
+### 10. 파일 업로드
 - 지원 형식: `.txt`, `.md`, `.pdf`, `.docx`
 - 업로드 시 기획서를 섹션 단위로 파싱하고, 새 UUID `thread_id`로 세션 격리
 
-### 10. API 키 가드레일
+### 11. API 키 가드레일
 - `/upload` 호출 시 누락 키가 있으면 503 + `.env` 설정 안내 반환
 
 ---
@@ -124,7 +151,7 @@ START → orchestrator → verification → data_verification
 | LLM | Solar Pro 2 (Upstage) |
 | 워크플로우 | LangGraph `StateGraph` + `InMemorySaver` |
 | 임베딩 / RAG | `solar-embedding-1-large` + ChromaDB |
-| 리랭킹 | Upstage `solar-reranking-1-lite` |
+| 리랭킹 | Flashrank `ms-marco-MiniLM-L-12-v2` (로컬) |
 | 웹 검색 | Tavily |
 | 백엔드 | FastAPI + `asyncio` |
 | 프론트엔드 | Streamlit |
@@ -212,3 +239,4 @@ pytest tests/ -v
 - **마크다운 청킹 분리** — 기획서 파싱(`parse_sections`)과 지식 문서 파싱(`parse_markdown_sections`)을 별도 함수로 분리했습니다.
 - **스테일 청크 교체** — `build_persona_index`는 파일별로 기존 청크 삭제 후 재인덱싱합니다.
 - **수치 검증 병렬화** — `data_verification_node`는 `asyncio.gather`로 최대 4개 웹 검색을 동시 실행해 지연을 최소화합니다.
+- **Reranker 로컬 대체** — `langchain-upstage 0.7.7` 에 `UpstageRerank` 클래스가 없고 Upstage 공개 Reranking REST API도 미존재(`/v1/solar/reranking` 등 전체 404). Flashrank `ms-marco-MiniLM-L-12-v2` (로컬, 22MB)로 대체. ChromaDB 1차 검색 10개 → Flashrank 재정렬 → top 3 전달. 실제 문서 순서 변경 확인.
