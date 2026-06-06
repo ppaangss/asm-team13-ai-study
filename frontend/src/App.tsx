@@ -1,4 +1,5 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { parseSSEChunk, routeDebugEvent } from "./utils";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
@@ -312,11 +313,8 @@ function App() {
         const chunks = buffer.split("\n\n");
         buffer = chunks.pop() ?? "";
         for (const chunk of chunks) {
-          const line = chunk
-            .split("\n")
-            .find((item) => item.startsWith("data: "));
-          if (!line) continue;
-          const event = JSON.parse(line.slice(6)) as ChatEvent;
+          const event = parseSSEChunk(chunk);
+          if (!event) continue;
           handleChatEvent(event);
         }
       }
@@ -366,17 +364,18 @@ function App() {
   }
 
   function handleDebugEvent(event: DebugEvent) {
-    if (event.type === "verification") {
-      setVerificationResults(event.items);
+    const route = routeDebugEvent(event);
+    if (route === "verification") {
+      setVerificationResults((event as VerificationDebug).items);
       return;
     }
-    if (event.type === "data_verification") {
-      setDataVerificationResults(event.items);
+    if (route === "data_verification") {
+      setDataVerificationResults((event as DataVerificationDebug).items);
       setDebugLog((prev) => [...prev, event]);
       return;
     }
-    if (event.type === "report") {
-      setFinalReport(event);
+    if (route === "report") {
+      setFinalReport(event as FinalReport);
       setIsDone(true);
       setDebugLog((prev) => [...prev, event]);
       return;
