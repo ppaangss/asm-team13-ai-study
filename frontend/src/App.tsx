@@ -340,27 +340,24 @@ function App() {
     if (!event.token || !event.node) return;
     const persona = normalizePersona(event.node);
     setActivePersona(persona);
-    setMessages((prev) => {
-      const existingId = streamMessageRef.current;
-      if (existingId) {
-        return prev.map((message) =>
+    // ref 읽기/쓰기를 함수형 업데이트 바깥에서 처리 — StrictMode double-invocation 방지
+    const existingId = streamMessageRef.current;
+    if (existingId) {
+      setMessages((prev) =>
+        prev.map((message) =>
           message.id === existingId
             ? { ...message, content: message.content + event.token }
             : message,
-        );
-      }
+        )
+      );
+    } else {
       const id = crypto.randomUUID();
       streamMessageRef.current = id;
-      return [
+      setMessages((prev) => [
         ...prev,
-        {
-          id,
-          role: "assistant",
-          persona,
-          content: event.token,
-        },
-      ];
-    });
+        { id, role: "assistant", persona, content: event.token },
+      ]);
+    }
   }
 
   function handleDebugEvent(event: DebugEvent) {
