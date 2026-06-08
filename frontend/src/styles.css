@@ -1059,7 +1059,7 @@ input:focus-visible,
   line-height: 20px;
 }
 
-.risk-meter {
+.safety-meter {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
   align-items: center;
@@ -1067,7 +1067,7 @@ input:focus-visible,
   margin: 10px 0 8px;
 }
 
-.risk-meter::before {
+.safety-meter::before {
   content: "";
   grid-column: 1;
   grid-row: 1;
@@ -1076,16 +1076,16 @@ input:focus-visible,
   background: var(--color-surface-muted);
 }
 
-.risk-meter span {
+.safety-meter span {
   grid-column: 1;
   grid-row: 1;
   display: block;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-warning), var(--color-danger));
+  background: linear-gradient(90deg, var(--color-primary), #5b8af5);
 }
 
-.risk-meter em {
+.safety-meter em {
   color: var(--color-ink-muted);
   font-size: 12px;
   font-style: normal;

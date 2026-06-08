@@ -1051,9 +1051,9 @@ function ReportPanel({ report }: { report: FinalReport }) {
               <StatusPill status={riskStatus(weakness.risk)} label={`위험도 ${weakness.risk}`} />
             </div>
             <p>{weakness.issue}</p>
-            <div className="risk-meter" aria-label={`위험 점수 ${weakness.risk_score}`}>
-              <span style={{ width: `${weakness.risk_score}%` }} />
-              <em>{weakness.risk_score}</em>
+            <div className="safety-meter" aria-label={`섹션 완성도 ${100 - weakness.risk_score}`}>
+              <span style={{ width: `${100 - weakness.risk_score}%` }} />
+              <em>{100 - weakness.risk_score}</em>
             </div>
             <small>{weakness.suggestion}</small>
           </article>
