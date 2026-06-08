@@ -70,6 +70,8 @@ class PlannerState(TypedDict):
     pending_debug: dict  # followup_judge 판정 후 꼬리질문 생성 전까지 임시 보관
     # 검증 에이전트 결과
     verification_results: list[dict]
+    # 답변 신뢰도 검증 결과 (라운드마다 누적)
+    answer_fact_checks: Annotated[list[dict], operator.add]
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────

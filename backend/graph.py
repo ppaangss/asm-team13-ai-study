@@ -11,7 +11,7 @@ from backend.nodes import (
     orchestrator_review_node,
     question_router,
     investor_node, cto_node, mentor_node,
-    human_node, followup_judge_node, reporter_node,
+    human_node, answer_fact_check_node, followup_judge_node, reporter_node,
 )
 
 _checkpointer = InMemorySaver()
@@ -68,6 +68,7 @@ def build_graph():
     builder.add_node("cto", cto_node)
     builder.add_node("mentor", mentor_node)
     builder.add_node("human", human_node)
+    builder.add_node("answer_fact_check", answer_fact_check_node)
     builder.add_node("followup_judge", followup_judge_node)
     builder.add_node("reporter", reporter_node)
 
@@ -99,8 +100,9 @@ def build_graph():
     builder.add_edge("cto", "human")
     builder.add_edge("mentor", "human")
 
-    # human → followup_judge → 꼬리질문 or 다음 라운드
-    builder.add_edge("human", "followup_judge")
+    # human → answer_fact_check → followup_judge → 꼬리질문 or 다음 라운드
+    builder.add_edge("human", "answer_fact_check")
+    builder.add_edge("answer_fact_check", "followup_judge")
     builder.add_conditional_edges(
         "followup_judge",
         _route_after_followup,

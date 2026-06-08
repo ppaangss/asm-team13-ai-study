@@ -236,6 +236,22 @@ reason에는 판단 근거를 구체적으로 작성하세요 (검색 결과의 
 source에는 검색 결과에서 확인된 출처 제목 또는 "검색 결과 없음"을 작성하세요."""
 
 
+ANSWER_CLAIM_EXTRACTION_PROMPT = """당신은 발표자의 구두 답변에서 웹 검색으로 검증 가능한 수치·통계 주장을 추출하는 분석가입니다.
+
+다음 유형의 주장만 추출하세요 (최대 3개):
+- 시장 규모·TAM 수치 (예: "국내 AI 시장 5조원", "글로벌 TAM $5B")
+- 성장률·CAGR (예: "연평균 25% 성장", "YoY 30%")
+- 경쟁사·가격 정보 (예: "노션 교육 라이선스 월 8달러", "경쟁사 A 점유율 40%")
+- 공개 통계 (예: "SW마에스트로 연 400명", "스마트폰 보급률 98%")
+
+추출 제외 항목:
+- 팀 내부 테스트·인터뷰 결과 (예: "15명 테스트해서 12명이 좋다고 했다")
+- 미래 목표 수치 (예: "3년 내 ARR 30억 목표")
+- 추상적 표현 (예: "빠르게 성장 중", "수요가 높다")
+
+주장이 없으면 빈 목록을 반환하세요."""
+
+
 SYSTEM_PROMPTS = {
     "orchestrator":       ORCHESTRATOR_SYSTEM_PROMPT,
     "investor":           INVESTOR_SYSTEM_PROMPT,
@@ -247,6 +263,8 @@ SYSTEM_PROMPTS = {
     "mentor_analyze":        MENTOR_ANALYZE_PROMPT,
     "followup_judge":        FOLLOWUP_JUDGE_SYSTEM_PROMPT,
     "verification":          VERIFICATION_SYSTEM_PROMPT,
-    "claim_extraction":      CLAIM_EXTRACTION_PROMPT,
-    "claim_verification":    CLAIM_VERIFICATION_PROMPT,
+    "claim_extraction":         CLAIM_EXTRACTION_PROMPT,
+    "claim_verification":       CLAIM_VERIFICATION_PROMPT,
+    "answer_claim_extraction":  ANSWER_CLAIM_EXTRACTION_PROMPT,
+    "answer_claim_verification": CLAIM_VERIFICATION_PROMPT,
 }

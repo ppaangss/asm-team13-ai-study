@@ -427,14 +427,67 @@ async def followup_judge_node(state: PlannerState) -> dict:
     }
 
 
+async def answer_fact_check_node(state: PlannerState) -> dict:
+    """사용자 답변에서 수치 주장 추출 → 웹 검색 → 진위 검증 → answer_fact_checks에 누적."""
+    import asyncio
+
+    msgs = state.get("messages", [])
+    last_answer = next((m for m in reversed(msgs) if m.get("role") == "user"), None)
+    if not last_answer:
+        return {"answer_fact_checks": []}
+
+    answer_text = last_answer["content"]
+
+    try:
+        claim_result: DataClaimList = await _bound_claim_extractor.ainvoke([
+            SystemMessage(content=SYSTEM_PROMPTS["answer_claim_extraction"]),
+            HumanMessage(content=answer_text),
+        ])
+        claims = claim_result.claims[:3]
+    except Exception:
+        return {"answer_fact_checks": []}
+
+    if not claims:
+        return {"answer_fact_checks": []}
+
+    search_results = await asyncio.gather(*[
+        asyncio.to_thread(web_search.invoke, claim) for claim in claims
+    ])
+
+    search_context = "\n\n".join(
+        f"[주장 {i+1}]: {claim}\n[검색 결과]: {result}"
+        for i, (claim, result) in enumerate(zip(claims, search_results))
+    )
+    try:
+        verify_result: DataVerificationResult = await _bound_claim_verifier.ainvoke([
+            SystemMessage(content=SYSTEM_PROMPTS["answer_claim_verification"]),
+            HumanMessage(content=search_context),
+        ])
+        items = [item.model_dump() for item in verify_result.items]
+    except Exception:
+        items = []
+
+    return {"answer_fact_checks": items}
+
+
 async def reporter_node(state: PlannerState) -> dict:
     """모든 Q&A를 바탕으로 구조화된 종합 리포트 생성. debug_log로 프론트에 전달."""
     context = _format_context(state)
     history = _format_history(state)
 
+    fact_checks = state.get("answer_fact_checks", [])
+    if fact_checks:
+        fact_lines = "\n".join(
+            f"- [{item['status']}] {item['claim']}: {item['reason']}"
+            for item in fact_checks
+        )
+        fact_block = f"\n\n=== 답변 신뢰도 검증 결과 ===\n{fact_lines}"
+    else:
+        fact_block = ""
+
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["reporter"]),
-        HumanMessage(content=f"{context}\n\n{history}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
+        HumanMessage(content=f"{context}\n\n{history}{fact_block}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
     ]
 
     try:
