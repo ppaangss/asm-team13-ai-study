@@ -45,6 +45,23 @@ def _format_history(state: PlannerState) -> str:
     return "\n".join(lines)
 
 
+def _format_followup_scores(state: PlannerState) -> str:
+    """debug_log의 followup_judge 점수를 reporter 컨텍스트용 블록으로 변환."""
+    entries = [
+        e for e in state.get("debug_log", [])
+        if isinstance(e, dict) and e.get("type") == "followup_judge"
+    ]
+    if not entries:
+        return ""
+    lines = ["=== 답변 품질 평가 결과 (followup_judge 점수) ==="]
+    for e in entries:
+        persona = e.get("persona", "unknown")
+        score = e.get("score", "?")
+        reason = e.get("reason", "")
+        lines.append(f"- [{persona}] 점수: {score}/100 — \"{reason}\"")
+    return "\n".join(lines)
+
+
 async def orchestrator_node(state: PlannerState) -> dict:
     """기획서 분석 → 6라운드 계획 + 페르소나별 섹션 배분."""
     context = _format_context(state)
@@ -414,6 +431,7 @@ async def followup_judge_node(state: PlannerState) -> dict:
         "threshold": threshold,
         "needs_followup": needs,
         "reason": reason,
+        "persona": last_q.get("name", "unknown") if last_q else "unknown",
         "question": last_q["content"] if last_q else "",
         "answer": last_a["content"] if last_a else "",
     }
@@ -493,9 +511,12 @@ async def reporter_node(state: PlannerState) -> dict:
     else:
         fact_block = ""
 
+    scores_block = _format_followup_scores(state)
+    scores_section = f"\n\n{scores_block}" if scores_block else ""
+
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["reporter"]),
-        HumanMessage(content=f"{context}\n\n{history}{fact_block}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
+        HumanMessage(content=f"{context}\n\n{history}{fact_block}{scores_section}\n\n위 내용을 바탕으로 종합 피드백 리포트를 작성하세요."),
     ]
 
     try:
