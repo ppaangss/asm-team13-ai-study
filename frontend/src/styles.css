@@ -459,6 +459,49 @@ input:focus-visible,
   transition: background 160ms ease-out, transform 160ms ease-out;
 }
 
+.session-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--color-ink-secondary);
+  cursor: default;
+}
+
+.settings-field small {
+  font-weight: 400;
+  color: var(--color-ink-muted);
+}
+
+.settings-field input[type="number"] {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--color-bg);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-ink);
+  text-align: center;
+}
+
+.settings-field input[type="number"]:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
 .primary-action {
   display: inline-flex;
   align-items: center;

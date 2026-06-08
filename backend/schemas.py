@@ -72,6 +72,9 @@ class PlannerState(TypedDict):
     verification_results: list[dict]
     # 답변 신뢰도 검증 결과 (라운드마다 누적)
     answer_fact_checks: Annotated[list[dict], operator.add]
+    # 세션 설정 (업로드 시 사용자 입력)
+    max_rounds: int
+    followup_thresholds: dict
 
 
 # ── API 요청/응답 ─────────────────────────────────────────────
@@ -83,6 +86,8 @@ class UploadResponse(BaseModel):
 class ChatRequest(BaseModel):
     thread_id: str
     message: str
+    max_rounds: int | None = None
+    followup_threshold: int | None = None
 
 
 class ChatEvent(BaseModel):

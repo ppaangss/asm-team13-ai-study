@@ -186,6 +186,8 @@ function App() {
   const [dataVerificationResults, setDataVerificationResults] = useState<DataVerificationItem[]>([]);
   const [debugLog, setDebugLog] = useState<DebugEvent[]>([]);
   const [finalReport, setFinalReport] = useState<FinalReport | null>(null);
+  const [maxRounds, setMaxRounds] = useState(3);
+  const [followupThreshold, setFollowupThreshold] = useState(30);
   const [isUploading, setIsUploading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDone, setIsDone] = useState(false);
@@ -256,7 +258,7 @@ function App() {
           content: "기획서 파싱이 끝났습니다. 심사위원들이 빈틈을 찾는 중입니다.",
         },
       ]);
-      await streamChat("/chat/start", { thread_id: data.thread_id, message: "" });
+      await streamChat("/chat/start", { thread_id: data.thread_id, message: "", max_rounds: maxRounds, followup_threshold: followupThreshold });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "백엔드 연결 실패";
       await startDemoReview(file.name, reason);
@@ -287,7 +289,7 @@ function App() {
     await streamChat("/chat", { thread_id: threadId, message: trimmed });
   }
 
-  async function streamChat(path: "/chat/start" | "/chat", body: { thread_id: string; message: string }) {
+  async function streamChat(path: "/chat/start" | "/chat", body: { thread_id: string; message: string; max_rounds?: number; followup_threshold?: number }) {
     setIsStreaming(true);
     streamMessageRef.current = null;
 
@@ -315,7 +317,7 @@ function App() {
         for (const chunk of chunks) {
           const event = parseSSEChunk(chunk);
           if (!event) continue;
-          handleChatEvent(event);
+          handleChatEvent(event as ChatEvent);
         }
       }
     } catch (err) {
@@ -525,6 +527,31 @@ function App() {
 
               <FileDropzone file={file} isUploading={isUploading} onFile={setFile} onReject={setError} />
 
+              <div className="session-settings">
+                <label className="settings-field">
+                  <span>최대 질문 수</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={6}
+                    value={maxRounds}
+                    disabled={isUploading}
+                    onChange={(e) => setMaxRounds(Math.min(6, Math.max(1, Number(e.target.value))))}
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>꼬리질문 임계값 <small>(0 = 꼬리질문 없음)</small></span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={followupThreshold}
+                    disabled={isUploading}
+                    onChange={(e) => setFollowupThreshold(Math.min(100, Math.max(0, Number(e.target.value))))}
+                  />
+                </label>
+              </div>
+
               <button className="primary-action" disabled={!file || isUploading} onClick={uploadPlan} type="button">
                 {isUploading ? <Loader2 className="spin" size={18} /> : <Upload size={18} />}
                 {isUploading ? "업로드 중" : "심사 시작"}
@@ -662,7 +689,7 @@ function InsightPanel({
         {activeTab === "answer" && <AnswerQualityPanel event={latestFollowup} isStreaming={isStreaming} />}
         {activeTab === "report" &&
           (finalReport ? (
-            <ReportPanel report={finalReport} dataItems={dataVerificationResults} answerEvents={followupEvents} />
+            <ReportPanel report={finalReport} />
           ) : (
             <ProgressPanel isStreaming={isStreaming} isDone={isDone} />
           ))}
@@ -984,18 +1011,7 @@ function AnswerQualityPanel({ event, isStreaming }: { event: FollowupDebug | nul
   );
 }
 
-function ReportPanel({
-  report,
-  dataItems,
-  answerEvents,
-}: {
-  report: FinalReport;
-  dataItems: DataVerificationItem[];
-  answerEvents: FollowupDebug[];
-}) {
-  const averageAnswerScore = getAverageAnswerScore(answerEvents);
-  const riskyClaims = dataItems.filter((item) => item.status !== "confirmed");
-
+function ReportPanel({ report }: { report: FinalReport }) {
   return (
     <section className="panel report-panel">
       <div className="panel-heading">
@@ -1010,40 +1026,9 @@ function ReportPanel({
         <span>{report.overall_score}</span>
         <div>
           <strong>{getReportGrade(report.overall_score)}</strong>
-          <p>{report.summary}</p>
         </div>
       </div>
 
-      <div className="report-metrics">
-        <MetricCard label="종합 완성도" value={`${report.overall_score}`} tone={report.overall_score >= 70 ? "pass" : "warn"} />
-        <MetricCard
-          label="평균 답변 품질"
-          value={averageAnswerScore === null ? "측정 전" : `${averageAnswerScore}`}
-          tone={averageAnswerScore !== null && averageAnswerScore >= 60 ? "pass" : "warn"}
-        />
-        <MetricCard label="검증 필요 수치" value={`${riskyClaims.length}`} tone={riskyClaims.length ? "warn" : "pass"} />
-      </div>
-
-      {dataItems.length > 0 && (
-        <>
-          <div className="divider" />
-          <h4>수치 데이터 검증 필요성</h4>
-          <div className="item-list">
-            {dataItems.map((item) => (
-              <article className="claim-risk-item" key={item.claim}>
-                <div>
-                  <StatusPill status={item.status} label={dataStatusLabel(item.status)} />
-                  <strong>{item.claim}</strong>
-                </div>
-                <p>{item.reason}</p>
-                <small>{item.status === "confirmed" ? "근거가 확인된 주장입니다." : "최종 발표 전 출처와 산정 근거를 다시 검증하세요."}</small>
-              </article>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="divider" />
       <h4>핵심 취약점</h4>
       <div className="item-list">
         {report.weaknesses.map((weakness) => (
@@ -1061,7 +1046,6 @@ function ReportPanel({
           </article>
         ))}
       </div>
-      {report.closing && <p className="closing">{report.closing}</p>}
     </section>
   );
 }

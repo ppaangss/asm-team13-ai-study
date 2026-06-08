@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
-from backend.config import UPSTAGE_API_KEY, TAVILY_API_KEY
+from backend.config import UPSTAGE_API_KEY, TAVILY_API_KEY, MAX_ROUNDS
+from backend.nodes import _derive_thresholds
 from backend.file_reader import extract_text, SUPPORTED_EXTENSIONS
 from backend.graph import graph
 from backend.parser import parse_sections
@@ -117,6 +118,8 @@ async def chat_start(req: ChatRequest):
         "pending_debug": {},
         "verification_results": [],
         "answer_fact_checks": [],
+        "max_rounds": req.max_rounds if req.max_rounds is not None else MAX_ROUNDS,
+        "followup_thresholds": _derive_thresholds(req.followup_threshold if req.followup_threshold is not None else 30),
     }
 
     async def event_generator():

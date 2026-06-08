@@ -47,7 +47,8 @@ def _route_after_followup(state: PlannerState) -> Literal["investor", "cto", "me
         return persona if persona in _ALL_PERSONAS else "investor"
 
     plan = state.get("orchestrator_plan", [])
-    if state["round"] >= len(plan) or state["round"] >= MAX_ROUNDS:
+    max_r = state.get("max_rounds", MAX_ROUNDS)
+    if state["round"] >= len(plan) or state["round"] >= max_r:
         return "reporter"
     return "question_router"
 

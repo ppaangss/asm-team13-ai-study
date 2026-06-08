@@ -359,6 +359,13 @@ def human_node(state: PlannerState) -> dict:
 _FOLLOWUP_THRESHOLDS = {0: 30, 1: 15, 2: 5}
 
 
+def _derive_thresholds(base: int) -> dict:
+    """단일 임계값에서 3회차 딕셔너리 생성. base=0이면 꼬리질문 없음."""
+    if base == 0:
+        return {0: 0, 1: 0, 2: 0}
+    return {0: base, 1: base // 2, 2: max(5, base // 6)}
+
+
 async def followup_judge_node(state: PlannerState) -> dict:
     """마지막 Q&A를 검토해 꼬리 질문 필요 여부 판단. 불필요하면 round 증가."""
     from backend.config import MAX_FOLLOWUPS
@@ -374,7 +381,8 @@ async def followup_judge_node(state: PlannerState) -> dict:
         qa_text += f"[답변]\n{last_a['content']}"
 
     followup_count = state.get("followup_count", 0)
-    threshold = _FOLLOWUP_THRESHOLDS.get(followup_count, 5)
+    state_thresholds = state.get("followup_thresholds", _FOLLOWUP_THRESHOLDS)
+    threshold = state_thresholds.get(followup_count, 5)
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPTS["followup_judge"]),
