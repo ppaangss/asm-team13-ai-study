@@ -19,7 +19,7 @@ START → orchestrator → verification → data_verification
      → investor_analyze → cto_analyze → mentor_analyze
      → orchestrator_review (ReAct 루프, 최대 2회)
      → question_router → [investor | cto | mentor]
-     → human (답변 대기) → followup_judge
+     → human (답변 대기) → answer_fact_check → followup_judge
      → 꼬리 질문 or 다음 라운드 or reporter → END
 ```
 - `orchestrator_review` 가 서브에이전트 분석 결과를 검토하고 품질이 불충분하면 재분석을 요청합니다 (ReAct 루프).
@@ -47,24 +47,38 @@ START → orchestrator → verification → data_verification
 - **병렬 웹 검색**: `asyncio.gather`로 Tavily 검색 동시 실행
 - **검증 결과**: `confirmed` / `unconfirmed` / `contradicted` 3단계 판정
 
-### 5. 꼬리 질문 시스템
+### 5. 답변 신뢰도 검증 (웹 검색 팩트체크)
+`answer_fact_check_node`가 사용자 답변에서 수치 주장을 최대 3개 추출해 웹 검색으로 진위를 검증합니다.
+
+- **추출 대상**: 시장 규모·사용자 수·성장률 등 사실 확인 가능한 수치 주장
+- **검증 결과**: `confirmed` / `unconfirmed` / `contradicted` 3단계 판정
+- 최종 리포트에 "답변 신뢰도 검증 결과" 블록으로 반영
+
+### 6. 꼬리 질문 시스템
 `followup_judge`가 사용자 답변의 핵심 커버율(0~100)을 판단합니다.
 
 - **맥락 기반 평가**: 짧은 답변("네", "맞습니다")도 질문 맥락을 고려해 LLM이 직접 판단
+- **세션별 임계값 설정**: 업로드 전 UI에서 엄격·보통·순함 3단계로 조절 가능
+
+| 단계 | base 임계값 | 0회차 | 1회차 | 2회차 |
+|:---:|:---------:|:----:|:----:|:----:|
+| 엄격 | 60 | 60 | 30 | 10 |
+| 보통 (기본) | 30 | 30 | 15 | 5 |
+| 순함 | 0 | 0 | 0 | 0 (꼬리질문 없음) |
+
 - LLM 호출 실패 시 "오류 발생" 명시
+- 판단 점수는 최종 리포트 생성 시 감점 근거로 활용됨
 
-| 꼬리 질문 횟수 | 임계값 |
-|:-----------:|:------:|
-| 0회차 (첫 답변) | 30 |
-| 1회차 꼬리 | 15 |
-| 2회차 꼬리 | 5 |
-
-### 6. 최종 리포트 (구조화된 JSON)
+### 7. 최종 리포트 (구조화된 JSON)
 모든 라운드 종료 후 `reporter` 노드가 구조화된 JSON 리포트를 생성합니다.
+
+- **답변 품질 점수 반영**: `followup_judge` 점수가 섹션별 위험도와 종합 점수에 명시적으로 반영
+  - 점수 0~29: 해당 섹션 risk_score +20, overall_score 감점
+  - 점수 30~59: risk_score +10, 소폭 감점
+  - 점수 60+: 감점 없음
 
 ```json
 {
-  "summary": "전반적 평가 2~3문장",
   "overall_score": 62,
   "weaknesses": [
     {
@@ -74,12 +88,11 @@ START → orchestrator → verification → data_verification
       "risk_score": 78,
       "suggestion": "LTV/CAC 수치 추가 필요"
     }
-  ],
-  "closing": "BM 구체화에 집중하세요."
+  ]
 }
 ```
 
-### 7. Reranker 설계 결정
+### 8. Reranker 설계 결정
 
 #### Upstage Reranking API 미사용 이유
 `langchain-upstage 0.7.7` (현재 최신)에 `UpstageRerank` 클래스가 존재하지 않으며,
@@ -106,7 +119,7 @@ POST https://api.upstage.ai/v1/solar/rerank
 실제 동작 검증 결과 — investor, cto, mentor 세 페르소나 모두 ChromaDB 코사인 유사도 순서와
 Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 확인했습니다.
 
-### 8. 페르소나별 RAG
+### 9. 페르소나별 RAG
 **예시 기획서 RAG**
 - `data/examples/`에 저장된 기획서 예시를 오케스트레이터 분석에 활용
 - 11개 도메인: AI 교육·헬스케어·핀테크·법률·HR·이커머스·기업교육·고객서비스·부동산·물류SCM·스마트팜
@@ -121,7 +134,15 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 | cto | 7 | 49 |
 | mentor | 7 | 55 |
 
-### 9. SSE 이벤트 스펙 (프론트엔드 연동)
+### 10. 업로드 전 세션 설정 UI
+업로드 화면에서 심사 전에 두 가지 파라미터를 설정할 수 있습니다.
+
+| 설정 | 범위 | 기본값 | 설명 |
+|------|------|--------|------|
+| 최대 질문 수 | 1~6 | 3 | 페르소나 심사 라운드 수 |
+| 꼬리질문 강도 | 엄격·보통·순함 | 보통 | 꼬리질문 발생 임계값 (`_derive_thresholds` 적용) |
+
+### 11. SSE 이벤트 스펙 (프론트엔드 연동)
 
 모든 이벤트 공통 구조:
 ```json
@@ -132,14 +153,14 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 |---|---|---|
 | `verification` | 분석 시작 직후 | `items[]{label, status, reason}` |
 | `data_verification` | verification 직후 | `items[]{claim, status, reason, source}` |
-| `followup_judge` | 각 답변 후 | `score, threshold, needs_followup, reason, followup_question?` |
-| `report` | 세션 종료 (`is_final: true`) | `summary, overall_score, weaknesses[], closing` |
+| `followup_judge` | 각 답변 후 | `score, threshold, needs_followup, reason, persona, followup_question?` |
+| `report` | 세션 종료 (`is_final: true`) | `overall_score, weaknesses[]` |
 
-### 10. 파일 업로드
+### 12. 파일 업로드
 - 지원 형식: `.txt`, `.md`, `.pdf`, `.docx`
 - 업로드 시 기획서를 섹션 단위로 파싱하고, 새 UUID `thread_id`로 세션 격리
 
-### 11. API 키 가드레일
+### 13. API 키 가드레일
 - `/upload` 호출 시 누락 키가 있으면 503 + `.env` 설정 안내 반환
 
 ---
@@ -187,7 +208,7 @@ Flashrank 재정렬 순서가 다르게 나와 실질적인 재정렬 효과를 
 │   ├── investor/        # 투자자 전문 지식 (7개 문서, 56청크)
 │   ├── cto/             # CTO 전문 지식 (7개 문서, 49청크)
 │   └── mentor/          # 멘토 전문 지식 (7개 문서, 55청크)
-├── tests/               # pytest 테스트 (82개)
+├── tests/               # pytest 테스트 (104개)
 ├── requirements.txt
 └── data/                # ChromaDB + 예시 기획서 (로컬 전용, .gitignore)
 ```
@@ -241,7 +262,7 @@ cd frontend
 npm test
 ```
 
-82개 백엔드 + 11개 프론트엔드 = **93개 테스트** 전원 통과 (API 키 불필요, 외부 서비스 Mock 처리).
+104개 백엔드 + 11개 프론트엔드 = **115개 테스트** 전원 통과 (API 키 불필요, 외부 서비스 Mock 처리).
 
 ---
 
@@ -257,3 +278,6 @@ npm test
 - **스테일 청크 교체** — `build_persona_index`는 파일별로 기존 청크 삭제 후 재인덱싱합니다.
 - **수치 검증 병렬화** — `data_verification_node`는 `asyncio.gather`로 최대 4개 웹 검색을 동시 실행해 지연을 최소화합니다.
 - **Reranker 로컬 대체** — `langchain-upstage 0.7.7` 에 `UpstageRerank` 클래스가 없고 Upstage 공개 Reranking REST API도 미존재(`/v1/solar/reranking` 등 전체 404). Flashrank `ms-marco-MiniLM-L-12-v2` (로컬, 22MB)로 대체. ChromaDB 1차 검색 10개 → Flashrank 재정렬 → top 3 전달. 실제 문서 순서 변경 확인.
+- **답변 품질의 리포트 반영** — `followup_judge`가 산정한 Q&A 점수(0~100)를 `debug_log`에 축적해 `reporter_node` 컨텍스트에 주입합니다. LLM은 이를 근거로 섹션별 위험도와 종합 점수를 명시적으로 감점 처리합니다. 점수만 텍스트로 전달하고 판단은 LLM에 위임해 프롬프트와 스키마 변경 없이 구현했습니다.
+- **세션별 심사 강도 설정** — `max_rounds`와 `followup_thresholds`를 `/chat/start` 요청 시 `initial_state`에 주입합니다. `_derive_thresholds(base)` 함수가 단일 숫자를 3회차 딕셔너리로 변환하며, base=0이면 모든 임계값이 0이 되어 꼬리질문이 발생하지 않습니다.
+- **안전도 점수(Safety Score)** — 프론트엔드 리포트에서 `risk_score`를 `100 - risk_score`로 변환해 표시합니다. 종합 점수(`overall_score`)와 방향이 통일되어 "높을수록 좋음"으로 일관됩니다. 백엔드 스키마는 변경하지 않았습니다.
