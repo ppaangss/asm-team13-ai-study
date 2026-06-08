@@ -461,12 +461,12 @@ input:focus-visible,
 
 .session-settings {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1.6fr;
   gap: 12px;
   padding: 14px 16px;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
 }
 
 .settings-field {
@@ -475,21 +475,20 @@ input:focus-visible,
   gap: 6px;
   font-size: 13px;
   font-weight: 640;
-  color: var(--color-ink-secondary);
+  color: var(--color-ink-muted);
   cursor: default;
 }
 
-.settings-field small {
-  font-weight: 400;
-  color: var(--color-ink-muted);
+.settings-field > span {
+  display: block;
 }
 
 .settings-field input[type="number"] {
   width: 100%;
   min-height: 36px;
   padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
   background: var(--color-bg);
   font-size: 15px;
   font-weight: 700;
@@ -500,6 +499,56 @@ input:focus-visible,
 .settings-field input[type="number"]:focus {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
+}
+
+.threshold-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+}
+
+.threshold-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-ink-muted);
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.threshold-option strong {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+  color: inherit;
+}
+
+.threshold-option small {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.threshold-option.active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(16, 19, 24, 0.08);
+}
+
+.threshold-option:hover:not(:disabled):not(.active) {
+  background: rgba(36, 87, 230, 0.06);
+  color: var(--color-ink);
 }
 
 .primary-action {

@@ -80,6 +80,13 @@ type FollowupDebug = {
 
 type DebugEvent = VerificationDebug | DataVerificationDebug | FollowupDebug | FinalReport;
 type InsightTab = "verification" | "answer" | "report" | "log";
+type ThresholdMode = "strict" | "normal" | "easy";
+
+const THRESHOLD_MODES: Record<ThresholdMode, { label: string; value: number; hint: string }> = {
+  strict: { label: "엄격", value: 60, hint: "꼬리질문 자주" },
+  normal: { label: "보통", value: 30, hint: "기본값" },
+  easy:   { label: "순함", value: 0,  hint: "꼬리질문 없음" },
+};
 
 type ChatEvent = {
   token: string;
@@ -187,7 +194,7 @@ function App() {
   const [debugLog, setDebugLog] = useState<DebugEvent[]>([]);
   const [finalReport, setFinalReport] = useState<FinalReport | null>(null);
   const [maxRounds, setMaxRounds] = useState(3);
-  const [followupThreshold, setFollowupThreshold] = useState(30);
+  const [thresholdMode, setThresholdMode] = useState<ThresholdMode>("normal");
   const [isUploading, setIsUploading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDone, setIsDone] = useState(false);
@@ -258,7 +265,7 @@ function App() {
           content: "기획서 파싱이 끝났습니다. 심사위원들이 빈틈을 찾는 중입니다.",
         },
       ]);
-      await streamChat("/chat/start", { thread_id: data.thread_id, message: "", max_rounds: maxRounds, followup_threshold: followupThreshold });
+      await streamChat("/chat/start", { thread_id: data.thread_id, message: "", max_rounds: maxRounds, followup_threshold: THRESHOLD_MODES[thresholdMode].value });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "백엔드 연결 실패";
       await startDemoReview(file.name, reason);
@@ -539,17 +546,23 @@ function App() {
                     onChange={(e) => setMaxRounds(Math.min(6, Math.max(1, Number(e.target.value))))}
                   />
                 </label>
-                <label className="settings-field">
-                  <span>꼬리질문 임계값 <small>(0 = 꼬리질문 없음)</small></span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={followupThreshold}
-                    disabled={isUploading}
-                    onChange={(e) => setFollowupThreshold(Math.min(100, Math.max(0, Number(e.target.value))))}
-                  />
-                </label>
+                <div className="settings-field">
+                  <span>꼬리질문 강도</span>
+                  <div className="threshold-toggle" role="group" aria-label="꼬리질문 강도 선택">
+                    {(Object.keys(THRESHOLD_MODES) as ThresholdMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`threshold-option${thresholdMode === mode ? " active" : ""}`}
+                        disabled={isUploading}
+                        onClick={() => setThresholdMode(mode)}
+                      >
+                        <strong>{THRESHOLD_MODES[mode].label}</strong>
+                        <small>{THRESHOLD_MODES[mode].hint}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <button className="primary-action" disabled={!file || isUploading} onClick={uploadPlan} type="button">
